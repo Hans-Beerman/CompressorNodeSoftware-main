@@ -60,7 +60,7 @@ NTP ntp(wifiUDP);
 
 //
 // information regarding NTP.h: https://platformio.org/lib/show/5438/NTP
-// See tab Installation for instructions to install in PlatformIO
+// See on this webpage: tab Installation for instructions to install library in PlatformIO
 //
 
 
@@ -125,6 +125,8 @@ DallasTemperature sensorTemp(&oneWire);
 #define PRESSURE_CALIBRATE_VALUE_4_5V (2600) // in measured bits
 
 #define DISPLAY_WINDOW (1000) // in ms, update display time
+
+#define KEEP_STATUS_LINE_TIME (5000) // in ms, default = 5 s (5000)
 
 #define SAVE_DURATION_COUNTERS_WINDOW (86400) // in seconds (86400 = 24 hour)
 //#define SAVE_DURATION_COUNTERS_WINDOW (300) // in seconds (300 = 5 min.) for test
@@ -223,6 +225,7 @@ unsigned long tempAvailableTime = 0;
 unsigned long tempIsTooHighStart = 0;
 bool previousTempIsHigh = false;
 bool tempIsHigh = false;
+bool previousErrorTempIsTooHigh = false;
 bool ErrorTempIsTooHigh = false;
 
 bool previousOilLevelIsTooLow = false;
@@ -249,6 +252,51 @@ typedef enum {
   ERRORDISPLAY
 } displaystates_t;
 
+typedef enum {
+  NOSTATUS,
+  RELEASEBUTTON,
+  NODEREBOOT,
+  MANUALSWITCHON,
+  MANUALOVERRIDE,
+  MANUALSWITCHOFF,
+  AUTOSWITCHON,
+  AUTOONDENIED,
+  AUTOSWITCHOFF,
+  POWERONDISABLED,
+  TIMEOUT,
+  ERRORLOWOILLEVEL,
+  NOLOWOILLEVEL,
+  WARNINGHIGHTEMP,
+  ERRORHIGHTEMP
+} statusdisplay_t;
+
+struct {
+  const char * statusmessage;
+  int y;
+  bool temporarily;
+} dispstatus[ERRORHIGHTEMP + 1] = 
+{
+	{ "                ", 15, false },
+	{ "Release button  ", 15, false },
+	{ "Node will reboot", 15, false },
+	{ "Manual poweron  ", 15, true },
+	{ "Manual override ", 15, true },
+	{ "Manual off      ", 15, true },
+	{ "Auto Power on   ", 15, true },
+	{ "Auto on denied  ", 15, true },
+	{ "Automatic Stop  ", 15, true },
+	{ "Poweron disabled", 15, true },
+	{ "Timeout ==> off ", 15, true },
+	{ "OilLevel too low", 10, false },
+	{ "OilLevel OK!    ", 10, false },
+	{ "Warning         ", 15, false },
+	{ "ERROR           ", 15, false },
+};
+
+bool showStatusTemporarily = false;
+unsigned long clearStatusLineTime = 0;
+
+
 displaystates_t currentDisplayState = NORMALDISPLAY;
 unsigned long updateDisplayTime = 0;
 bool firstTimeDisplayed = true;
@@ -264,6 +312,36 @@ bool compressorIsOn = false;
 
 // for 1.5 inch OLED Display 128*128 pixels wit - I2C
 U8X8_SSD1327_WS_128X128_SW_I2C u8x8(I2C_SCL, I2C_SDA,U8X8_PIN_NONE);
+
+void showStatusOnDisplay(statusdisplay_t statusMessage) {
+  char outputStr[20];
+
+  switch (statusMessage) {
+    case NOSTATUS:
+    case ERRORLOWOILLEVEL:
+    case NOLOWOILLEVEL:
+      u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
+      u8x8.drawString(0, dispstatus[statusMessage].y, dispstatus[statusMessage].statusmessage);
+      break;
+    case WARNINGHIGHTEMP:
+      u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
+      sprintf(outputStr, "WARNING >%4.0f %cC", TEMP_IS_HIGH_LEVEL, 176);
+      u8x8.drawString(0, dispstatus[statusMessage].y, outputStr);
+      break;
+    case ERRORHIGHTEMP:
+      u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
+      sprintf(outputStr, "ERROR   >%4.0f %cC", TEMP_IS_TOO_HIGH_LEVEL, 176);
+      u8x8.drawString(0, dispstatus[statusMessage].y, outputStr);
+      break;
+    default:
+      u8x8.setFont(u8x8_font_chroma48medium8_r);
+      u8x8.drawString(0, dispstatus[statusMessage].y, dispstatus[statusMessage].statusmessage);
+      break;
+  }
+  
+  showStatusTemporarily = dispstatus[statusMessage].temporarily;
+  clearStatusLineTime = millis() + KEEP_STATUS_LINE_TIME;
+}
 
 void checkClearEEPromAndCacheButtonPressed(void) {
   unsigned long ButtonPressedTime;
@@ -292,7 +370,7 @@ void checkClearEEPromAndCacheButtonPressed(void) {
       if (millis() >= ButtonPressedTime + MAX_WAIT_TIME_BUTTON_PRESSED) {
         if (firstTime) {
           Log.print("\rPlease release button");
-          u8x8.drawString(0, 15, "Release button");
+          showStatusOnDisplay(RELEASEBUTTON);
           firstTime = false;
         }
       } else {
@@ -316,7 +394,7 @@ void checkClearEEPromAndCacheButtonPressed(void) {
       u8x8.drawString(0, 11, "                ");
       u8x8.drawString(0, 12, "                ");
       u8x8.drawString(0, 13, "                ");
-      u8x8.drawString(0, 15, "                ");
+      showStatusOnDisplay(NOSTATUS);
       // Clear EEPROM
       wipe_eeprom();
       Log.println("EEProm cleared!");
@@ -335,7 +413,7 @@ void checkClearEEPromAndCacheButtonPressed(void) {
         // do nothing here
       }
       Log.println("Node will be restarted");
-      u8x8.drawString(0, 15, "Node will reboot");
+      showStatusOnDisplay(NODEREBOOT);
       // restart node
       ESP.restart();
     } else {
@@ -554,8 +632,7 @@ void setup() {
       digitalWrite(LED2, 0);
       compressorIsOn = false;
       Log.println("Compressor stopped");
-      u8x8.setFont(u8x8_font_chroma48medium8_r);
-      u8x8.drawString(0, 15, "Automatic Stop  ");
+      showStatusOnDisplay(AUTOSWITCHOFF);
       return ACNode::CMD_CLAIMED;
     };
 
@@ -569,14 +646,12 @@ void setup() {
           compressorIsOn = true;
           machinestate = POWERED;
           Log.println("Compressor powered on");
-          u8x8.setFont(u8x8_font_chroma48medium8_r);
-          u8x8.drawString(0, 15, "Auto Power on   ");
+          showStatusOnDisplay(AUTOSWITCHON);
         };
         autoPowerOff = millis() + AUTOTIMEOUT;
       } else {
         Log.println("Request denied to power on the compressor. Reason: late hours/night!");
-        u8x8.setFont(u8x8_font_chroma48medium8_r);
-        u8x8.drawString(0, 15, "Auto on denied  ");
+        showStatusOnDisplay(AUTOONDENIED);
       }
       return ACBase::CMD_CLAIMED;
     };
@@ -648,12 +723,6 @@ void setup() {
   ntp.ruleSTD("CET", Last, Sun, Oct, 3, 60); // last sunday in october 3:00, timezone +60min (+1 GMT)
   ntp.begin();
   ntp.update();
-
-  Serial.println("*******************************");
-  Serial.print("NTP hour = ");
-  Serial.println(ntp.hours());
-  Serial.println("*******************************");
-
 }
 
 void buttons_optocoupler_loop() {
@@ -680,7 +749,6 @@ void buttons_optocoupler_loop() {
       // Compressor must remain disabled, due to errors
       return;
     }
-    u8x8.setFont(u8x8_font_chroma48medium8_r);
     if (!compressorIsDisabeled()) {
       Log.printf("Compressor switched on with button\n");
       digitalWrite(RELAY_GPIO, 1);
@@ -689,7 +757,7 @@ void buttons_optocoupler_loop() {
       compressorIsOn = true;
       machinestate = POWERED;
       autoPowerOff = millis() + AUTOTIMEOUT;
-      u8x8.drawString(0, 15, "Manual poweron  ");
+      showStatusOnDisplay(MANUALSWITCHON);
     } else {
       buttonOnPressedTime = millis();  
       while (digitalRead(ON_BUTTON) == BUTTON_ON_PRESSED) {
@@ -699,12 +767,13 @@ void buttons_optocoupler_loop() {
           digitalWrite(LED2, 0);
           compressorIsOn = true;
           machinestate = POWERED;
-          autoPowerOff = millis() + AUTOTIMEOUT;
-          u8x8.drawString(0, 15, "Manual poweron  ");
+          autoPowerOff = millis() + AUTOTIMEOUT; 
+          showStatusOnDisplay(MANUALOVERRIDE);
+          Log.println("Warning: compressor was switched on using manual override!");
           return;
         }
       }
-      u8x8.drawString(0, 15, "Poweron disabled");
+      showStatusOnDisplay(POWERONDISABLED);
       Log.println("Power on denied!");
       Log.println("Power on is disabled during evening/night window");
     }
@@ -717,8 +786,7 @@ void buttons_optocoupler_loop() {
     digitalWrite(LED2, 0);
     compressorIsOn = false;
     machinestate = SWITCHEDOFF;
-    u8x8.setFont(u8x8_font_chroma48medium8_r);
-    u8x8.drawString(0, 15, "Manual off      ");
+    showStatusOnDisplay(MANUALSWITCHOFF);
   };
 }
 
@@ -727,8 +795,6 @@ void temp_sensor_loop() {
     currentTemperature = sensorTemp.getTempC(tempDeviceAddress);
 
     if (currentTemperature == -127) {
-//      previousTemperature = currentTemperature;
-//      temperature = -127;
       Log.println("Temperature sensor does not react, perhaps not available?");
     } else {
       if (currentTemperature != previousTemperature) {
@@ -742,6 +808,9 @@ void temp_sensor_loop() {
     sensorTemp.requestTemperaturesByAddress(tempDeviceAddress);
     tempAvailableTime = millis() + conversionTime;
     if (temperature <= TEMP_IS_HIGH_LEVEL) {
+      if (tempIsHigh) {
+        Log.println("Temperature is OK now (below warning threshold)");
+      }
       tempIsHigh = false;
       if (ErrorTempIsTooHigh)
       {
@@ -750,6 +819,9 @@ void temp_sensor_loop() {
       ErrorTempIsTooHigh = false;
       tempIsTooHighStart = 0;
     } else {
+      if (!tempIsHigh) {
+        Log.println("WARNING: temperature is above warning level. Please check compressor");
+      }
       tempIsHigh = true;
       if ((temperature > TEMP_IS_TOO_HIGH_LEVEL) && !ErrorTempIsTooHigh) {
         if (tempIsTooHighStart == 0) {
@@ -758,6 +830,11 @@ void temp_sensor_loop() {
           if (millis() > (tempIsTooHighStart + MAX_TEMP_IS_TOO_HIGH_WINDOW)) {
             firstTimeDisplayed = true;
             ErrorTempIsTooHigh = true;
+            if (!ERRORLOWOILLEVEL) {
+              Log.println("ERROR: Temperature is too high, compressor will be disabled. Please check compressor!");
+            } else {
+              Log.println("ERROR: Temperature is too high, please check compressor!");
+            }
           }
         }
       } else {
@@ -765,6 +842,7 @@ void temp_sensor_loop() {
           tempIsTooHighStart = 0;
           ErrorTempIsTooHigh = false;
           firstTimeDisplayed = true;
+          Log.println("WARNING: Temperature is below error level now, but still above warning level. Please check compressor!");
         }
       }
     }
@@ -845,13 +923,17 @@ void display_loop() {
             sprintf(outputStr, "Temp.:%7.2f %cC", temperature, 176);
           }
           u8x8.drawString(0, 5, outputStr);
-          if (previousTempIsHigh != tempIsHigh) {
-            if (tempIsHigh) {
-              sprintf(outputStr, "WARNING >%4.0f %cC", TEMP_IS_HIGH_LEVEL, 176);
+          if ((previousTempIsHigh != tempIsHigh) || (previousErrorTempIsTooHigh != ErrorTempIsTooHigh)) {
+            if (ErrorTempIsTooHigh) {
+              showStatusOnDisplay(ERRORHIGHTEMP);
             } else {
-              sprintf(outputStr, "                ");
+              if (tempIsHigh) {
+                showStatusOnDisplay(WARNINGHIGHTEMP);
+              } else {
+                showStatusOnDisplay(NOSTATUS);
+              }
             }
-            u8x8.drawString(0, 15, outputStr);
+            previousErrorTempIsTooHigh = ErrorTempIsTooHigh;  
             previousTempIsHigh = tempIsHigh;
           }
         }
@@ -890,12 +972,10 @@ void display_loop() {
         }
         if ((oilLevelIsTooLow != lastOilLevelDisplayed)  || firstTimeDisplayed) {
           lastOilLevelDisplayed = oilLevelIsTooLow;
-          u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          
           if (oilLevelIsTooLow) {
-            u8x8.drawString(0, 10, "OilLevel too low");      
+            showStatusOnDisplay(ERRORLOWOILLEVEL);
           } else {
-            u8x8.drawString(0, 10, "OilLevel OK!    ");      
+            showStatusOnDisplay(NOLOWOILLEVEL);
           }
         }
 
@@ -930,6 +1010,20 @@ void display_loop() {
         }
         firstTimeDisplayed = false;
       }
+
+      if (showStatusTemporarily && (millis() > clearStatusLineTime)) {
+        if (tempIsHigh) {
+          showStatusOnDisplay(WARNINGHIGHTEMP);
+        } else {
+          if (ErrorTempIsTooHigh) {
+            showStatusOnDisplay(ERRORHIGHTEMP);
+          } else {
+            showStatusOnDisplay(NOSTATUS);
+          }
+        }
+        showStatusTemporarily = false;
+      }
+
     break;
     case ERRORDISPLAY:
       if (firstTimeDisplayed) {
@@ -990,7 +1084,7 @@ void oil_level_sensor_loop() {
           }
           oilLevelNextLoggingTime = millis() + OIL_LEVEL_LOG_WINDOW;
           previousErrorOilLevelIsTooLow = ErrorOilLevelIsTooLow;
-          Log.println("ERROR: Oil level is too low; Compressor is disabled now; Please maintain the compressor by filling up the oil");
+          Log.println("ERROR: Oil level is too low; Compressor will be disabled; Please maintain the compressor by filling up the oil");
         }
       }
     }
@@ -1028,10 +1122,12 @@ void compressorLoop() {
       digitalWrite(LED2, 0);
       compressorIsOn = false;
       machinestate = SWITCHEDOFF;
+      if (ErrorOilLevelIsTooLow || ErrorTempIsTooHigh) {
+        Log.println("Compressor is disabled now due to error(s). Please check compressor!");
+      }
       if (millis() > autoPowerOff) {
         Log.println("Timeout: compressor automatically switched off");
-        u8x8.setFont(u8x8_font_chroma48medium8_r);
-        u8x8.drawString(0, 15, "Timeout ==> off ");
+        showStatusOnDisplay(TIMEOUT);
       }
     }
   } else {
