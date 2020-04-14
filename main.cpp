@@ -27,7 +27,7 @@
 
 // The GPIO pins used on the Olimax ESP32PoE
 #define RELAY_GPIO      (14)  // digital output
-#define ON_BUTTON      (15)  // digital input
+#define ON_BUTTON       (15)  // digital input
 #define OFF_BUTTON      ( 5)  // digital input
 #define OPTO1           (36)  // digital input
 #define LED1            (32)  // digital output
@@ -59,10 +59,9 @@ WiFiUDP wifiUDP;
 NTP ntp(wifiUDP);
 
 //
-// information regarding NTP.h: https://platformio.org/lib/show/5438/NTP
-// See on this webpage: tab Installation for instructions to install library in PlatformIO
+// information about NTP.h, see: https://platformio.org/lib/show/5438/NTP
+// On this webpage: select tab Installation for instructions to install library in PlatformIO
 //
-
 
 // One Wire input port for temperature sensor
 #define ONE_WIRE_BUS (TEMPSENSOR)
@@ -71,8 +70,8 @@ NTP ntp(wifiUDP);
  *
  */
 #define OTA_PASSWD "MyPassWoord"
-#define WIFI_NETWORK "WLAN-HB-24"
-#define WIFI_PASSWD "C7F382D940BBAB5"
+// #define WIFI_NETWORK "WLAN-HB-24"
+// #define WIFI_PASSWD "C7F382D940BBAB5"
 /* Einde testen thuis
  *
  */
@@ -90,50 +89,57 @@ NTP ntp(wifiUDP);
  *
  */
 
-ButtonDebounce buttonOn(ON_BUTTON, 150 /* mSeconds */);
-ButtonDebounce buttonOff(OFF_BUTTON, 150 /* mSeconds */);
-OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor
+// button on and button off
+#define BUTTON_ON_PRESSED (LOW) // the input level of the GPIO port used for button on, if button on is pressed
+#define BUTTON_OFF_PRESSED (LOW) // the input level of te GPIO port used for button off. if button off is pressed
 
-ButtonDebounce oilLevel(OILLEVELSENSOR, 300 /* mSeconds */);
+ButtonDebounce buttonOn(ON_BUTTON, 150 /* mSeconds */); // buttonOn is used to switch on the compressor
+ButtonDebounce buttonOff(OFF_BUTTON, 150 /* mSeconds */); // buttonOff is used to switch off the compressor
 
-OneWire oneWire(ONE_WIRE_BUS); 
-DallasTemperature sensorTemp(&oneWire);
+// 230VAC optocoupler
+OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to detect if the motor has power (or not)
 
-#define BUTTON_ON_PRESSED (LOW)
-#define BUTTON_OFF_PRESSED (LOW)
 
-#define TEMP_RESOLUTION (12) // 9, 10, 11 or 12 bit resolution
-#define MAX_TEMP_CONVERSIONTIME (750) // in ms
-#define MAX_TEMP_ERROR_COUNT (30)
-#define TEMP_IS_HIGH_LEVEL (26.0) // in degrees Celcius, used for temperatur is high warning
-#define TEMP_IS_TOO_HIGH_LEVEL (28.0) // in degrees Celcius, used to disable compressor when temperature is too high
-// #define MAX_TEMP_IS_TOO_HIGH_WINDOW (300000) // in ms default 300000 = 5 minutes. Error is signalled after this time window is passed
-// for test
-#define MAX_TEMP_IS_TOO_HIGH_WINDOW (10000) // in ms test 10000 = 10 seconds. Error is signalled after this time window is passed
-
-#define TO_LOW_OIL_LEVEL (LOW)
-// #define MAX_OIL_LEVEL_IS_TOO_LOW_WINDOW (300000) // in ms default 300000 = 5 minutes. Error is signalled after this time window is passed
-// for test
-#define MAX_OIL_LEVEL_IS_TOO_LOW_WINDOW (10000) // in ms test 10000 = 10 seconds. Error is signalled after this time window is passed
+// oil level sensor
+#define TO_LOW_OIL_LEVEL (LOW) // the input level of the GPIO port used for the oil level sensor signalling too low oil level
+#define MAX_OIL_LEVEL_IS_TOO_LOW_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is signalled after this time window is passed
 #define OIL_LEVEL_LOG_WINDOW (60000) // in ms
 
+ButtonDebounce oilLevel(OILLEVELSENSOR, 300 /* mSeconds */); // to signal if the oil level is too low (or not)
+
+// temperature sensor
+OneWire oneWire(ONE_WIRE_BUS); // used for the temperature sensor
+DallasTemperature sensorTemp(&oneWire);
+
+#define TEMP_RESOLUTION (12) // 9, 10, 11 or 12 bit resolution of the ADC in the temperature sensor
+#define MAX_TEMP_CONVERSIONTIME (750) // in ms
+#define TEMP_IS_HIGH_LEVEL (40.0) // in degrees Celcius, used for temperature is high warning
+#define TEMP_IS_TOO_HIGH_LEVEL (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high
+#define MAX_TEMP_IS_TOO_HIGH_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is only signalled after this time window is passed
+
+
+// For LED's showing node error
 #define BLINKING_LED_PERIOD (600) // in ms
 
+// pressure sensor
 #define PRESSURE_SAMPLE_WINDOW (1000) // in ms
 #define PRESSURE_LOG_WINDOW (60000) // in ms
 #define PRESSURE_CALIBRATE_VALUE_0_5V (144) // in measured bits
 #define PRESSURE_CALIBRATE_VALUE_4_5V (2600) // in measured bits
 
+// oled display
 #define DISPLAY_WINDOW (1000) // in ms, update display time
 
-#define KEEP_STATUS_LINE_TIME (5000) // in ms, default = 5 s (5000)
+#define KEEP_STATUS_LINE_TIME (5000) // in ms, default = 5 s (5000), the time certain status messages are shown on the bottom line of the display
 
+// for storage in EEProm of the duration counters
 #define SAVE_DURATION_COUNTERS_WINDOW (86400) // in seconds (86400 = 24 hour)
-//#define SAVE_DURATION_COUNTERS_WINDOW (300) // in seconds (300 = 5 min.) for test
 
+#define DURATION_DIR_PREFIX "/init"
+#define DURATION_FILE_PREFIX "/duration"
+
+// for auto switch off of the compressor
 #define AUTOTIMEOUT (30 * 60 * 1000) // default: in ms 30 * 60 * 1000 = 30 minutes
-// for test
-// #define AUTOTIMEOUT (1 * 60 * 1000) // test: in ms 1 * 60 * 1000 = 1 minute
 
 // Compressor disabled (or not) at late hours:
 // IF the compressor is not allowed at late hours (DISABLE_COMPRESSOR AT LATE HOURS = true) the 
@@ -144,6 +150,9 @@ DallasTemperature sensorTemp(&oneWire);
 #define DISABLE_COMPRESSOR_AT_LATE_HOURS (true)
 #define DISABLED_TIME_START (19) // in hour, time from which the compressor is not automatically switched on
 #define DISABLED_TIME_END (8) // in hour, time to which the compressor is not automatically switched on
+#define MAX_WAIT_TIME_BUTTON_ON_PRESSED       (10000)  // in ms, time button on must be pressed to override late hour compressor disable
+#define LED_DISABLE_DURATION                  (5000)  // in ms, the time LED1 will flash if button on is pressed during late hour
+#define LED_DISABLE_PERIOD                    (200)  // in ms, the time LED1 will flash on/off
 
 // Clear EEProm button
 // Press BUT1 on Olimex ESP32 PoE module before (re)boot of node
@@ -153,16 +162,13 @@ DallasTemperature sensorTemp(&oneWire);
 #define CLEAR_EEPROM_AND_CACHE_BUTTON_PRESSED (LOW)
 
 #define MAX_WAIT_TIME_BUTTON_PRESSED          (4000)  // in ms
-#define MAX_WAIT_TIME_BUTTON_ON_PRESSED       (10000)  // in ms
 
-#define DURATION_DIR_PREFIX "/init"
-#define DURATION_FILE_PREFIX "/duration"
 
 /* Voor testen thuis
  *
  */ 
-ACNode node = ACNode(MACHINE, WIFI_NETWORK, WIFI_PASSWD);
-// ACNode node = ACNode(MACHINE);
+// ACNode node = ACNode(MACHINE, WIFI_NETWORK, WIFI_PASSWD);
+ACNode node = ACNode(MACHINE);
 /* Einde voor testen thuis
  *
  */ 
@@ -306,6 +312,11 @@ char reportStr[128];
 unsigned long DurationCounterSave;
 
 unsigned long buttonOnPressedTime;
+bool buttonOnIsPressed = false;
+
+unsigned long ledDisableTime = 0;
+unsigned long nextLedDisableTime = 0;
+bool showLedDisable = false;
 
 unsigned long autoPowerOff;
 bool compressorIsOn = false;
@@ -521,9 +532,10 @@ bool compressorIsDisabeled() {
   int currentHour;
 
   currentHour = ntp.hours();
-
+/* 
   Serial.print("Current hour: ");
   Serial.println(currentHour);
+*/  
   if (ErrorOilLevelIsTooLow || ErrorTempIsTooHigh || 
       (((currentHour >= DISABLED_TIME_START) || (currentHour <= DISABLED_TIME_END)) && DISABLE_COMPRESSOR_AT_LATE_HOURS)) {
     return true;
@@ -744,7 +756,7 @@ void buttons_optocoupler_loop() {
     }
   }
 
-  if (buttonOn.state() == BUTTON_ON_PRESSED && machinestate == SWITCHEDOFF) {
+  if ((buttonOn.state() == BUTTON_ON_PRESSED && machinestate == SWITCHEDOFF) && (buttonOff.state() != BUTTON_ON_PRESSED)) {
     if (ErrorOilLevelIsTooLow || ErrorTempIsTooHigh) {
       // Compressor must remain disabled, due to errors
       return;
@@ -759,27 +771,41 @@ void buttons_optocoupler_loop() {
       autoPowerOff = millis() + AUTOTIMEOUT;
       showStatusOnDisplay(MANUALSWITCHON);
     } else {
-      buttonOnPressedTime = millis();  
-      while (digitalRead(ON_BUTTON) == BUTTON_ON_PRESSED) {
-        if (millis() >= buttonOnPressedTime + MAX_WAIT_TIME_BUTTON_ON_PRESSED) {
-          digitalWrite(RELAY_GPIO, 1);
-          digitalWrite(LED1, 1);
-          digitalWrite(LED2, 0);
-          compressorIsOn = true;
-          machinestate = POWERED;
-          autoPowerOff = millis() + AUTOTIMEOUT; 
-          showStatusOnDisplay(MANUALOVERRIDE);
-          Log.println("Warning: compressor was switched on using manual override!");
-          return;
-        }
+      if (!buttonOnIsPressed) {
+        buttonOnPressedTime = millis();
+        showStatusOnDisplay(POWERONDISABLED);
+        Log.println("Power on denied!");
+        Log.println("Power on is disabled during evening/night window");
+        // flash LED to show that function is disabled
+        ledDisableTime = millis() + LED_DISABLE_DURATION;
+        nextLedDisableTime = millis() + LED_DISABLE_PERIOD;
+        showLedDisable = true;
+        digitalWrite(LED1, 1);
       }
-      showStatusOnDisplay(POWERONDISABLED);
-      Log.println("Power on denied!");
-      Log.println("Power on is disabled during evening/night window");
+      buttonOnIsPressed = true;
     }
-  };
+  }
 
-  if (buttonOff.state() == BUTTON_OFF_PRESSED && machinestate >= POWERED) {
+  if (buttonOnIsPressed) {
+    if ((digitalRead(ON_BUTTON) != BUTTON_ON_PRESSED) && (millis() < (buttonOnPressedTime + MAX_WAIT_TIME_BUTTON_ON_PRESSED))) {
+      buttonOnIsPressed = false;
+    } else {
+      if ((digitalRead(ON_BUTTON) == BUTTON_ON_PRESSED) && (millis() >= (buttonOnPressedTime + MAX_WAIT_TIME_BUTTON_ON_PRESSED))) {
+        buttonOnIsPressed = false;
+        digitalWrite(RELAY_GPIO, 1);
+        digitalWrite(LED1, 1);
+        digitalWrite(LED2, 0);
+        compressorIsOn = true;
+        machinestate = POWERED;
+        autoPowerOff = millis() + AUTOTIMEOUT; 
+        showStatusOnDisplay(MANUALOVERRIDE);
+        Log.println("Warning: compressor was switched on using manual override!");
+      }
+    }
+  }
+
+
+  if ((buttonOff.state() == BUTTON_OFF_PRESSED && machinestate >= POWERED) && (buttonOn.state() != BUTTON_ON_PRESSED)) {
     Log.printf("Compressor switched off with button\n");
     digitalWrite(RELAY_GPIO, 0);
     digitalWrite(LED1, 0);
@@ -788,6 +814,17 @@ void buttons_optocoupler_loop() {
     machinestate = SWITCHEDOFF;
     showStatusOnDisplay(MANUALSWITCHOFF);
   };
+  if (showLedDisable) {
+    if (millis() > ledDisableTime) {
+      showLedDisable = false;
+      digitalWrite(LED1, 0);
+    } else {
+      if (millis() > nextLedDisableTime) {
+        nextLedDisableTime = millis() + LED_DISABLE_PERIOD;
+        digitalWrite(LED1, !digitalRead(LED1));
+      }
+    }
+  }
 }
 
 void temp_sensor_loop() {
