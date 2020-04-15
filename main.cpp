@@ -23,6 +23,7 @@
 #define ESP32_PoE
 // #define OB_POLLING
 
+// for calibrating the pressure sensor remove the comment statement in front of next #define
 // #define CALIBRATE_PRESSURE
 
 // The GPIO pins used on the Olimax ESP32PoE
@@ -48,46 +49,24 @@
 #include <OptoDebounce.h>
 #include <ButtonDebounce.h>
 #include <OneWire.h> 
-#include <DallasTemperature.h>
-#include <U8x8lib.h>
-
+#include <DallasTemperature.h> // install DallasTemperature by Miles Burton
+#include <U8x8lib.h> // install U8g2 library by oliver
 #include <WiFiUdp.h>
-
-#include <NTP.h>
-
-WiFiUDP wifiUDP;
-NTP ntp(wifiUDP);
-
+#include <NTP.h> // install NTP by Stefan Staub
 //
 // information about NTP.h, see: https://platformio.org/lib/show/5438/NTP
-// On this webpage: select tab Installation for instructions to install library in PlatformIO
 //
+WiFiUDP wifiUDP;
+NTP ntp(wifiUDP);
 
 // One Wire input port for temperature sensor
 #define ONE_WIRE_BUS (TEMPSENSOR)
 
-/* Voor testen thuis
- *
- */
 #define OTA_PASSWD "MyPassWoord"
-// #define WIFI_NETWORK "WLAN-HB-24"
-// #define WIFI_PASSWD "C7F382D940BBAB5"
-/* Einde testen thuis
- *
- */
 
-/* Voor testen makerspace
- *
- */
-// #define OTA_PASSWD "MyPassWoord"
-// #define WIFI_NETWORK "MakerSpaceLeiden_deelnemers"
-// #define WIFI_PASSWD "M@@K1234"
-
+// for test
 #define MACHINE "test-compressor1"
 // define MACHINE "compressor"
-/* Einde voor testen makerspace
- *
- */
 
 // button on and button off
 #define BUTTON_ON_PRESSED (LOW) // the input level of the GPIO port used for button on, if button on is pressed
@@ -98,7 +77,6 @@ ButtonDebounce buttonOff(OFF_BUTTON, 150 /* mSeconds */); // buttonOff is used t
 
 // 230VAC optocoupler
 OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to detect if the motor has power (or not)
-
 
 // oil level sensor
 #define TO_LOW_OIL_LEVEL (LOW) // the input level of the GPIO port used for the oil level sensor signalling too low oil level
@@ -116,7 +94,6 @@ DallasTemperature sensorTemp(&oneWire);
 #define TEMP_IS_HIGH_LEVEL (40.0) // in degrees Celcius, used for temperature is high warning
 #define TEMP_IS_TOO_HIGH_LEVEL (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high
 #define MAX_TEMP_IS_TOO_HIGH_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is only signalled after this time window is passed
-
 
 // For LED's showing node error
 #define BLINKING_LED_PERIOD (600) // in ms
@@ -163,15 +140,9 @@ DallasTemperature sensorTemp(&oneWire);
 
 #define MAX_WAIT_TIME_BUTTON_PRESSED          (4000)  // in ms
 
-
-/* Voor testen thuis
- *
- */ 
+// for testing with WiFi
 // ACNode node = ACNode(MACHINE, WIFI_NETWORK, WIFI_PASSWD);
 ACNode node = ACNode(MACHINE);
-/* Einde voor testen thuis
- *
- */ 
 
 MqttLogStream mqttlogStream = MqttLogStream();
 TelnetSerialStream telnetSerialStream = TelnetSerialStream();
@@ -533,6 +504,7 @@ bool compressorIsDisabeled() {
 
   currentHour = ntp.hours();
 /* 
+ * for test of NTP, check if time shown is correct 
   Serial.print("Current hour: ");
   Serial.println(currentHour);
 */  
@@ -758,7 +730,7 @@ void buttons_optocoupler_loop() {
 
   if ((buttonOn.state() == BUTTON_ON_PRESSED && machinestate == SWITCHEDOFF) && (buttonOff.state() != BUTTON_ON_PRESSED)) {
     if (ErrorOilLevelIsTooLow || ErrorTempIsTooHigh) {
-      // Compressor must remain disabled, due to errors
+      // Compressor must remain disabled, until these errors, which can demage the compressor, are solved
       return;
     }
     if (!compressorIsDisabeled()) {
@@ -803,7 +775,6 @@ void buttons_optocoupler_loop() {
       }
     }
   }
-
 
   if ((buttonOff.state() == BUTTON_OFF_PRESSED && machinestate >= POWERED) && (buttonOn.state() != BUTTON_ON_PRESSED)) {
     Log.printf("Compressor switched off with button\n");
