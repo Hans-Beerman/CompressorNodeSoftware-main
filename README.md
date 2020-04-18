@@ -35,7 +35,7 @@ See [https://github.com/dirkx/AccesSystem/tree/master/lib-arduino/ACNode](https:
 
 In addition to this description the following libraries are needed:
 
-- _NTP_: NTP by Stefan Staub (#include \&lt;NTP.h\&gt;) current version 1.4.
+- _NTP_: NTP by Stefan Staub (#include <NTP.h>;) current version 1.4.
 
 For more information about this library see:
 
@@ -43,8 +43,8 @@ For more information about this library see:
 
 This library is used to collect via NTP the correct local time;
 
-- _DallasTemperature_: DallasTemperature by Miles Burton (#include \&lt;DallasTemperature.h\&gt;), current version 3.6.1;
-- _U8x8lib_: U8g2 library by oliver (#include \&lt;U8x8lib.h\&gt;), current version 2.28.2.
+- _DallasTemperature_: DallasTemperature by Miles Burton (#include <DallasTemperature.h>), current version 3.6.1, this library is used for the one wire temperature sensor based on the DS18B20;
+- _U8x8lib_: U8g2 library by oliver (#include <U8x8lib.h>), current version 2.28.2, this library is used for the 128x128 pixels Oled display used.
 
 **Configuratie PlatformIO**
 
