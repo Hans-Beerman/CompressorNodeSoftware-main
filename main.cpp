@@ -23,9 +23,6 @@
 #define ESP32_PoE
 // #define OB_POLLING
 
-// for calibrating the pressure sensor remove the comment statement in front of next #define
-// #define CALIBRATE_PRESSURE
-
 // The GPIO pins used on the Olimax ESP32PoE
 #define RELAY_GPIO      (14)  // digital output
 #define ON_BUTTON       (15)  // digital input
@@ -51,8 +48,9 @@
 // information about NTP.h, see: https://platformio.org/lib/show/5438/NTP
 //
 #include "TempSensor.h"
+#include "PressureSensor.h"
 #include "OledDisplay.h"
-
+#include "OilLevelSensor.h"
 
 WiFiUDP wifiUDP;
 NTP ntp(wifiUDP);
@@ -77,21 +75,8 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 #define TEMP_IS_HIGH_LEVEL (40.0) // in degrees Celcius, used for temperature is high warning
 #define TEMP_IS_TOO_HIGH_LEVEL (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high
 
-// oil level sensor
-#define TO_LOW_OIL_LEVEL (LOW) // the input level of the GPIO port used for the oil level sensor signalling too low oil level
-#define MAX_OIL_LEVEL_IS_TOO_LOW_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is signalled after this time window is passed
-#define OIL_LEVEL_LOG_WINDOW (60000) // in ms
-
-ButtonDebounce oilLevel(OILLEVELSENSOR, 300 /* mSeconds */); // to signal if the oil level is too low (or not)
-
 // For LED's showing node error
 #define BLINKING_LED_PERIOD (600) // in ms
-
-// pressure sensor
-#define PRESSURE_SAMPLE_WINDOW (1000) // in ms
-#define PRESSURE_LOG_WINDOW (60000) // in ms
-#define PRESSURE_CALIBRATE_VALUE_0_5V (144) // in measured bits
-#define PRESSURE_CALIBRATE_VALUE_4_5V (2600) // in measured bits
 
 // for storage in EEProm of the duration counters
 #define SAVE_DURATION_COUNTERS_WINDOW (86400) // in seconds (86400 = 24 hour)
@@ -172,18 +157,11 @@ TemperatureSensor theTempSensor(TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
 // OledDisplay
 OledDisplay theOledDisplay;
 
-bool previousOilLevelIsTooLow = false;
-bool oilLevelIsTooLow = false;
-unsigned long oilLevelNextLoggingTime = 0;
-unsigned long oilLevelIsTooLowStart = 0;
-bool previousErrorOilLevelIsTooLow = false;
-bool ErrorOilLevelIsTooLow = false;
+// pressure sensor
+PressureSensor thePressureSensor;
 
-int pressureADCVal = 0;
-float pressureVoltage = 0;
-float pressure = 0;
-unsigned long pressureNextSampleTime = 0;
-unsigned long pressureNextLogTime = 0;
+// oil level sensor
+OilLevelSensor theOilLevelSensor;
 
 unsigned long blinkingLedNextTime = 0;
 bool blinkingLedIsOn = false;
@@ -402,8 +380,6 @@ void setup() {
   pinMode(LED2, OUTPUT);
   digitalWrite(LED2, 0);
 
-  pinMode(OILLEVELSENSOR, INPUT_PULLUP);
-
   theOledDisplay.begin();
 
   Serial.printf("Boot state: ButtonOn:%d ButtonOff:%d\n", digitalRead(ON_BUTTON), digitalRead(OFF_BUTTON));
@@ -436,10 +412,7 @@ void setup() {
     Debug.printf("Button Off changed to %d\n", state);
   });
 
-  oilLevel.setCallback([](int state) {
-    Debug.printf("OilLevel sensor changed to %d\n", state);
-  });
-
+  theOilLevelSensor.begin();
 
   node.onConnect([]() {
     machinestate = SWITCHEDOFF;
@@ -514,7 +487,7 @@ void setup() {
       report["oil_level_sensor"] = "oil level is OK!";
     } else {
       if (ErrorOilLevelIsTooLow) {
-        report["oil)level_sensor_error"] = "ERROR: Oil level is too low, compressor is disabled";
+        report["oil_level_sensor_error"] = "ERROR: Oil level is too low, compressor is disabled";
       } else {
         report["oil_level_sensor_warning"] = "WARNING: Oil level is too low!";
       }
@@ -644,81 +617,6 @@ void buttons_optocoupler_loop() {
   }
 }
 
-
-void pressure_sensor_loop() {
-  if (millis() > pressureNextSampleTime) {
-    pressureNextSampleTime = millis() + PRESSURE_SAMPLE_WINDOW;
-    pressureADCVal = analogRead(PRESSURESENSOR);
-    if (pressureADCVal < PRESSURE_CALIBRATE_VALUE_0_5V) {
-      pressureADCVal = PRESSURE_CALIBRATE_VALUE_0_5V;
-    }
-    pressureVoltage = (((float)pressureADCVal - (float)PRESSURE_CALIBRATE_VALUE_0_5V) * 4.0) / ((float)PRESSURE_CALIBRATE_VALUE_4_5V - (float)PRESSURE_CALIBRATE_VALUE_0_5V) + 0.5;
-    pressure = ((pressureVoltage - 0.5) / 4.0) * 1.2;
-
-    if (millis() > pressureNextLogTime) {
-      pressureNextLogTime = millis() + PRESSURE_LOG_WINDOW;
-      Log.print("Pressure = ");
-      Log.print(pressure);
-      Log.println(" MPa");
-    }
-
-    // for calibration
-    #ifdef CALIBRATE_PRESSURE
-    Serial.print("Pressure ADC = ");
-    Serial.print(pressureADCVal);
-    Serial.println(" bits");
-    Serial.print("Pressure voltage = ");
-    Serial.print(pressureVoltage);
-    Serial.println(" V");
-    Serial.print("Pressure = ");
-    Serial.print(pressure);
-    Serial.println(" MPa");
-    #endif
-    // end calibration
-  }
-}
-
-void oil_level_sensor_loop() {
-  if (oilLevel.state() == TO_LOW_OIL_LEVEL) {
-    oilLevelIsTooLow = true;
-
-    if (oilLevelIsTooLowStart == 0) {
-      oilLevelIsTooLowStart = millis();
-    } else {
-      if ((millis() - oilLevelIsTooLowStart) >= MAX_OIL_LEVEL_IS_TOO_LOW_WINDOW) {
-        ErrorOilLevelIsTooLow = true;
-        if ((ErrorOilLevelIsTooLow != previousErrorOilLevelIsTooLow) || (millis() > oilLevelNextLoggingTime)) {
-          if (ErrorOilLevelIsTooLow != previousErrorOilLevelIsTooLow) {
-            nextTimeDisplay = true;
-          }
-          oilLevelNextLoggingTime = millis() + OIL_LEVEL_LOG_WINDOW;
-          previousErrorOilLevelIsTooLow = ErrorOilLevelIsTooLow;
-          Log.println("ERROR: Oil level is too low; Compressor will be disabled; Please maintain the compressor by filling up the oil");
-        }
-      }
-    }
-    
-    if ((oilLevelIsTooLow != previousOilLevelIsTooLow) || (millis() > oilLevelNextLoggingTime)) {
-      oilLevelNextLoggingTime = millis() + OIL_LEVEL_LOG_WINDOW;
-      Log.println("Oil level is too low!");
-      previousOilLevelIsTooLow = oilLevelIsTooLow;
-    }
-  } else {
-    if(ErrorOilLevelIsTooLow) {
-       nextTimeDisplay = true;
-       Log.println("SOLVED: Oil level error");
-    }
-    oilLevelIsTooLow = false;
-    oilLevelIsTooLowStart = 0;
-    ErrorOilLevelIsTooLow = false;
-    previousErrorOilLevelIsTooLow = false;
-    if (oilLevelIsTooLow != previousOilLevelIsTooLow) {
-      Log.println("Oil level is OK now!");
-      previousOilLevelIsTooLow = oilLevelIsTooLow;
-    }
-  }
-}
-
 void compressorLoop() {
  
   ntp.update();
@@ -779,8 +677,8 @@ void loop() {
   node.loop();
 
   theTempSensor.loop();
-  oilLevel.update();
-  pressure_sensor_loop();
+  
+  thePressureSensor.loop();
 
   theOledDisplay.loop(oilLevelIsTooLow, ErrorOilLevelIsTooLow, temperature, tempIsHigh, 
                       ErrorTempIsTooHigh, pressure, machinestate, 
@@ -821,7 +719,7 @@ void loop() {
 
   buttons_optocoupler_loop();
 
-  oil_level_sensor_loop();
+  theOilLevelSensor.loop();
 
   switch (machinestate) {
     case REBOOT:
