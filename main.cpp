@@ -37,30 +37,25 @@
 #define PRESSURESENSOR  (35)  // analog input
 #define TEMPSENSOR      ( 4)  // one wire digital input
 
-// for I2C display
-#define I2C_SDA         (13)  // I2C SDA
-#define I2C_SCL         (16)  // I2C SCL
-
 #include <Arduino.h>
+#include <MachState.h>
 #include <ACNode.h>
 #include <WiredEthernet.h>
 #include <SIG2.h>
 #include <Cache.h>
 #include <OptoDebounce.h>
 #include <ButtonDebounce.h>
-#include <OneWire.h> 
-#include <DallasTemperature.h> // install DallasTemperature by Miles Burton
-#include <U8x8lib.h> // install U8g2 library by oliver
 #include <WiFiUdp.h>
 #include <NTP.h> // install NTP by Stefan Staub
 //
 // information about NTP.h, see: https://platformio.org/lib/show/5438/NTP
 //
+#include "TempSensor.h"
+#include "OledDisplay.h"
+
+
 WiFiUDP wifiUDP;
 NTP ntp(wifiUDP);
-
-// One Wire input port for temperature sensor
-#define ONE_WIRE_BUS (TEMPSENSOR)
 
 #define OTA_PASSWD "MyPassWoord"
 
@@ -78,22 +73,16 @@ ButtonDebounce buttonOff(OFF_BUTTON, 150 /* mSeconds */); // buttonOff is used t
 // 230VAC optocoupler
 OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to detect if the motor has power (or not)
 
+// temperature sensor
+#define TEMP_IS_HIGH_LEVEL (40.0) // in degrees Celcius, used for temperature is high warning
+#define TEMP_IS_TOO_HIGH_LEVEL (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high
+
 // oil level sensor
 #define TO_LOW_OIL_LEVEL (LOW) // the input level of the GPIO port used for the oil level sensor signalling too low oil level
 #define MAX_OIL_LEVEL_IS_TOO_LOW_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is signalled after this time window is passed
 #define OIL_LEVEL_LOG_WINDOW (60000) // in ms
 
 ButtonDebounce oilLevel(OILLEVELSENSOR, 300 /* mSeconds */); // to signal if the oil level is too low (or not)
-
-// temperature sensor
-OneWire oneWire(ONE_WIRE_BUS); // used for the temperature sensor
-DallasTemperature sensorTemp(&oneWire);
-
-#define TEMP_RESOLUTION (12) // 9, 10, 11 or 12 bit resolution of the ADC in the temperature sensor
-#define MAX_TEMP_CONVERSIONTIME (750) // in ms
-#define TEMP_IS_HIGH_LEVEL (40.0) // in degrees Celcius, used for temperature is high warning
-#define TEMP_IS_TOO_HIGH_LEVEL (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high
-#define MAX_TEMP_IS_TOO_HIGH_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is only signalled after this time window is passed
 
 // For LED's showing node error
 #define BLINKING_LED_PERIOD (600) // in ms
@@ -103,11 +92,6 @@ DallasTemperature sensorTemp(&oneWire);
 #define PRESSURE_LOG_WINDOW (60000) // in ms
 #define PRESSURE_CALIBRATE_VALUE_0_5V (144) // in measured bits
 #define PRESSURE_CALIBRATE_VALUE_4_5V (2600) // in measured bits
-
-// oled display
-#define DISPLAY_WINDOW (1000) // in ms, update display time
-
-#define KEEP_STATUS_LINE_TIME (5000) // in ms, default = 5 s (5000), the time certain status messages are shown on the bottom line of the display
 
 // for storage in EEProm of the duration counters
 #define SAVE_DURATION_COUNTERS_WINDOW (86400) // in seconds (86400 = 24 hour)
@@ -151,16 +135,6 @@ TelnetSerialStream telnetSerialStream = TelnetSerialStream();
 OTA ota = OTA(OTA_PASSWD);
 #endif
 
-typedef enum {
-  BOOTING, OUTOFORDER,      // device not functional.
-  REBOOT,                   // forcefull reboot
-  TRANSIENTERROR,           // hopefully goes away level error
-  NOCONN,                   // sort of fairly hopless (though we can cache RFIDs!)
-  SWITCHEDOFF,              // connected compressor switched off completely
-  POWERED,                  // unit is powered on
-  RUNNING,                  // unit is running (opto sees light).
-} machinestates_t;
-
 #define NEVER (0)
 
 struct {
@@ -175,6 +149,8 @@ struct {
   { "Rebooting",            LED::LED_ERROR,           120 * 1000, REBOOT },
   { "Transient Error",      LED::LED_ERROR,           120 * 1000, REBOOT },
   { "No network",           LED::LED_FLASH,           120 * 1000, REBOOT },
+  { "Waiting for card",     LED::LED_IDLE,            NEVER, REBOOT },
+  { "Checking card",        LED::LED_IDLE,            NEVER, REBOOT },
   { "Compressor switched off", LED::LED_IDLE,         NEVER, SWITCHEDOFF},
   { "Powered - motor off",  LED::LED_IDLE,            NEVER, POWERED },
   { "Powered - motor running", LED::LED_ON,           NEVER, RUNNING },
@@ -183,31 +159,21 @@ struct {
 unsigned long laststatechange = 0;
 static machinestates_t laststate = BOOTING;
 machinestates_t machinestate = BOOTING;
-machinestates_t laststateDisplayed = BOOTING;
 
 unsigned long powered_total = 0, powered_last;
 unsigned long running_total = 0, running_last;
-float powered = 0.0;
-float lastPoweredDisplayed = 0.0;
-float running = 0.0;
-float lastRunningDisplayed = 0.0;
 
-DeviceAddress tempDeviceAddress;
-float previousTemperature = -500;
-float currentTemperature = -500;
-float temperature = -500;
-float lastTempDisplayed = -500;
-unsigned long conversionTime = MAX_TEMP_CONVERSIONTIME / (1 << (12 - TEMP_RESOLUTION));
-unsigned long tempAvailableTime = 0;
-unsigned long tempIsTooHighStart = 0;
-bool previousTempIsHigh = false;
-bool tempIsHigh = false;
-bool previousErrorTempIsTooHigh = false;
-bool ErrorTempIsTooHigh = false;
+float powered = 0.0;
+float running = 0.0;
+
+// temperature sensor
+TemperatureSensor theTempSensor(TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
+
+// OledDisplay
+OledDisplay theOledDisplay;
 
 bool previousOilLevelIsTooLow = false;
 bool oilLevelIsTooLow = false;
-bool lastOilLevelDisplayed = false;
 unsigned long oilLevelNextLoggingTime = 0;
 unsigned long oilLevelIsTooLowStart = 0;
 bool previousErrorOilLevelIsTooLow = false;
@@ -216,67 +182,12 @@ bool ErrorOilLevelIsTooLow = false;
 int pressureADCVal = 0;
 float pressureVoltage = 0;
 float pressure = 0;
-float lastPressureDisplayed = -1;
 unsigned long pressureNextSampleTime = 0;
 unsigned long pressureNextLogTime = 0;
 
 unsigned long blinkingLedNextTime = 0;
 bool blinkingLedIsOn = false;
 bool ledIsBlinking = false;
-
-typedef enum {
-  NORMALDISPLAY,        // Normal display shown when there is no error, showing current compressor state etc.
-  ERRORDISPLAY
-} displaystates_t;
-
-typedef enum {
-  NOSTATUS,
-  RELEASEBUTTON,
-  NODEREBOOT,
-  MANUALSWITCHON,
-  MANUALOVERRIDE,
-  MANUALSWITCHOFF,
-  AUTOSWITCHON,
-  AUTOONDENIED,
-  AUTOSWITCHOFF,
-  POWERONDISABLED,
-  TIMEOUT,
-  ERRORLOWOILLEVEL,
-  NOLOWOILLEVEL,
-  WARNINGHIGHTEMP,
-  ERRORHIGHTEMP
-} statusdisplay_t;
-
-struct {
-  const char * statusmessage;
-  int y;
-  bool temporarily;
-} dispstatus[ERRORHIGHTEMP + 1] = 
-{
-	{ "                ", 15, false },
-	{ "Release button  ", 15, false },
-	{ "Node will reboot", 15, false },
-	{ "Manual poweron  ", 15, true },
-	{ "Manual override ", 15, true },
-	{ "Manual off      ", 15, true },
-	{ "Auto Power on   ", 15, true },
-	{ "Auto on denied  ", 15, true },
-	{ "Automatic Stop  ", 15, true },
-	{ "Poweron disabled", 15, true },
-	{ "Timeout ==> off ", 15, true },
-	{ "OilLevel too low", 10, false },
-	{ "OilLevel OK!    ", 10, false },
-	{ "Warning         ", 15, false },
-	{ "ERROR           ", 15, false },
-};
-
-bool showStatusTemporarily = false;
-unsigned long clearStatusLineTime = 0;
-
-
-displaystates_t currentDisplayState = NORMALDISPLAY;
-unsigned long updateDisplayTime = 0;
-bool firstTimeDisplayed = true;
 
 char reportStr[128];
 
@@ -292,39 +203,6 @@ bool showLedDisable = false;
 unsigned long autoPowerOff;
 bool compressorIsOn = false;
 
-// for 1.5 inch OLED Display 128*128 pixels wit - I2C
-U8X8_SSD1327_WS_128X128_SW_I2C u8x8(I2C_SCL, I2C_SDA,U8X8_PIN_NONE);
-
-void showStatusOnDisplay(statusdisplay_t statusMessage) {
-  char outputStr[20];
-
-  switch (statusMessage) {
-    case NOSTATUS:
-    case ERRORLOWOILLEVEL:
-    case NOLOWOILLEVEL:
-      u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-      u8x8.drawString(0, dispstatus[statusMessage].y, dispstatus[statusMessage].statusmessage);
-      break;
-    case WARNINGHIGHTEMP:
-      u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-      sprintf(outputStr, "WARNING >%4.0f %cC", TEMP_IS_HIGH_LEVEL, 176);
-      u8x8.drawString(0, dispstatus[statusMessage].y, outputStr);
-      break;
-    case ERRORHIGHTEMP:
-      u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-      sprintf(outputStr, "ERROR   >%4.0f %cC", TEMP_IS_TOO_HIGH_LEVEL, 176);
-      u8x8.drawString(0, dispstatus[statusMessage].y, outputStr);
-      break;
-    default:
-      u8x8.setFont(u8x8_font_chroma48medium8_r);
-      u8x8.drawString(0, dispstatus[statusMessage].y, dispstatus[statusMessage].statusmessage);
-      break;
-  }
-  
-  showStatusTemporarily = dispstatus[statusMessage].temporarily;
-  clearStatusLineTime = millis() + KEEP_STATUS_LINE_TIME;
-}
-
 void checkClearEEPromAndCacheButtonPressed(void) {
   unsigned long ButtonPressedTime;
   unsigned long currentSecs;
@@ -336,14 +214,9 @@ void checkClearEEPromAndCacheButtonPressed(void) {
   // check if button is pressed for at least 4 s
   Log.println("Checking if the button is pressed for clearing EEProm and cache");
 
+	
   if (digitalRead(CLEAR_EEPROM_AND_CACHE_BUTTON) == CLEAR_EEPROM_AND_CACHE_BUTTON_PRESSED) {
-    u8x8.setFont(u8x8_font_chroma48medium8_r);
-    u8x8.drawString(0, 9, "Keep Olimex BUT2");
-    u8x8.drawString(0, 10, "pressed for at  ");
-    u8x8.drawString(0, 11, "least 4 seconds ");
-    u8x8.drawString(0, 12, "to clear EEProm ");
-    u8x8.drawString(0, 13, "and cache memory");
-
+    theOledDisplay.clearEEPromWarning();
     ButtonPressedTime = millis();  
     prevSecs = MAX_WAIT_TIME_BUTTON_PRESSED / 1000;
     Log.print(prevSecs);
@@ -352,7 +225,7 @@ void checkClearEEPromAndCacheButtonPressed(void) {
       if (millis() >= ButtonPressedTime + MAX_WAIT_TIME_BUTTON_PRESSED) {
         if (firstTime) {
           Log.print("\rPlease release button");
-          showStatusOnDisplay(RELEASEBUTTON);
+          theOledDisplay.showStatus(RELEASEBUTTON, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
           firstTime = false;
         }
       } else {
@@ -370,17 +243,12 @@ void checkClearEEPromAndCacheButtonPressed(void) {
       Log.print("\rButton for clearing EEProm and cache was pressed for more than ");
       Log.print(MAX_WAIT_TIME_BUTTON_PRESSED / 1000);
       Log.println(" s, EEProm and Cache will be cleared!");
-      u8x8.setFont(u8x8_font_chroma48medium8_r);
-      u8x8.drawString(0, 9, "EEProm and cache");
-      u8x8.drawString(0, 10, "will be cleared ");
-      u8x8.drawString(0, 11, "                ");
-      u8x8.drawString(0, 12, "                ");
-      u8x8.drawString(0, 13, "                ");
-      showStatusOnDisplay(NOSTATUS);
+      theOledDisplay.clearEEPromMessage();
+      theOledDisplay.showStatus(NOSTATUS, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
       // Clear EEPROM
       wipe_eeprom();
       Log.println("EEProm cleared!");
-      u8x8.drawString(0, 12, "EEProm cleared  ");
+      theOledDisplay.EEPromCleared();      
       // Clear cache
       prepareCache(true);
       // Clear duration counter file
@@ -388,14 +256,14 @@ void checkClearEEPromAndCacheButtonPressed(void) {
       if (SPIFFS.exists(path)) {
         SPIFFS.remove(path);
       } 
-      u8x8.drawString(0, 13, "Cache cleared   ");
+      theOledDisplay.cacheCleared();
       Log.println("Cache cleared!");
       // wait until button is released, than reboot
       while (digitalRead(CLEAR_EEPROM_AND_CACHE_BUTTON) == CLEAR_EEPROM_AND_CACHE_BUTTON_PRESSED) {
         // do nothing here
       }
       Log.println("Node will be restarted");
-      showStatusOnDisplay(NODEREBOOT);
+      theOledDisplay.showStatus(NODEREBOOT, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
       // restart node
       ESP.restart();
     } else {
@@ -536,24 +404,7 @@ void setup() {
 
   pinMode(OILLEVELSENSOR, INPUT_PULLUP);
 
-  // for 1.5 inch OLED Display 128*128 pixels wit - I2C
-  pinMode(I2C_SDA, OUTPUT);
-  pinMode(I2C_SCL, OUTPUT);
-  digitalWrite(I2C_SDA, 0);
-  digitalWrite(I2C_SCL, 0);
-  
-  u8x8.begin();
-
-  u8x8.setFont(u8x8_font_px437wyse700a_2x2_r);
-  u8x8.drawString(0, 0, "CompNode");
-
-  u8x8.setFont(u8x8_font_px437wyse700b_2x2_r);
-  u8x8.drawString(0, 2, "  V0.1  ");
-
-  u8x8.setFont(u8x8_font_chroma48medium8_r);
-  u8x8.drawString(0, 4, " c Hans Beerman ");
-  u8x8.drawString(0, 6, "Booting, please ");
-  u8x8.drawString(0, 7, "      wait      ");
+  theOledDisplay.begin();
 
   Serial.printf("Boot state: ButtonOn:%d ButtonOff:%d\n", digitalRead(ON_BUTTON), digitalRead(OFF_BUTTON));
 
@@ -576,13 +427,7 @@ void setup() {
   // node.set_report_period(2 * 1000);
 
   // init temperature sensor and start reading first value
-  sensorTemp.begin();
-  sensorTemp.getAddress(tempDeviceAddress, 0);
-  sensorTemp.setResolution(tempDeviceAddress, TEMP_RESOLUTION);
-  sensorTemp.setWaitForConversion(false);
-  sensorTemp.requestTemperaturesByAddress(tempDeviceAddress);
-  tempAvailableTime = millis() + conversionTime;
-
+  theTempSensor.begin();
 
   buttonOn.setCallback([](int state) {
     Debug.printf("Button On changed to %d\n", state);
@@ -616,7 +461,7 @@ void setup() {
       digitalWrite(LED2, 0);
       compressorIsOn = false;
       Log.println("Compressor stopped");
-      showStatusOnDisplay(AUTOSWITCHOFF);
+      theOledDisplay.showStatus(AUTOSWITCHOFF, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
       return ACNode::CMD_CLAIMED;
     };
 
@@ -630,12 +475,12 @@ void setup() {
           compressorIsOn = true;
           machinestate = POWERED;
           Log.println("Compressor powered on");
-          showStatusOnDisplay(AUTOSWITCHON);
+          theOledDisplay.showStatus(AUTOSWITCHON, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
         };
         autoPowerOff = millis() + AUTOTIMEOUT;
       } else {
         Log.println("Request denied to power on the compressor. Reason: late hours/night!");
-        showStatusOnDisplay(AUTOONDENIED);
+        theOledDisplay.showStatus(AUTOONDENIED, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
       }
       return ACBase::CMD_CLAIMED;
     };
@@ -701,7 +546,8 @@ void setup() {
 
   // Olimex ESP32-PoE board is used
   node.begin(BOARD_OLIMEX);
-  u8x8.clearDisplay();
+  
+  theOledDisplay.clearDisplay();
 
   ntp.ruleDST("CEST", Last, Sun, Mar, 2, 120); // last sunday in march 2:00, timetone +120min (+1 GMT + 1h summertime offset)
   ntp.ruleSTD("CET", Last, Sun, Oct, 3, 60); // last sunday in october 3:00, timezone +60min (+1 GMT)
@@ -741,11 +587,11 @@ void buttons_optocoupler_loop() {
       compressorIsOn = true;
       machinestate = POWERED;
       autoPowerOff = millis() + AUTOTIMEOUT;
-      showStatusOnDisplay(MANUALSWITCHON);
+      theOledDisplay.showStatus(MANUALSWITCHON, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
     } else {
       if (!buttonOnIsPressed) {
         buttonOnPressedTime = millis();
-        showStatusOnDisplay(POWERONDISABLED);
+        theOledDisplay.showStatus(POWERONDISABLED, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
         Log.println("Power on denied!");
         Log.println("Power on is disabled during evening/night window");
         // flash LED to show that function is disabled
@@ -770,7 +616,7 @@ void buttons_optocoupler_loop() {
         compressorIsOn = true;
         machinestate = POWERED;
         autoPowerOff = millis() + AUTOTIMEOUT; 
-        showStatusOnDisplay(MANUALOVERRIDE);
+        theOledDisplay.showStatus(MANUALOVERRIDE, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
         Log.println("Warning: compressor was switched on using manual override!");
       }
     }
@@ -783,7 +629,7 @@ void buttons_optocoupler_loop() {
     digitalWrite(LED2, 0);
     compressorIsOn = false;
     machinestate = SWITCHEDOFF;
-    showStatusOnDisplay(MANUALSWITCHOFF);
+    theOledDisplay.showStatus(MANUALSWITCHOFF, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
   };
   if (showLedDisable) {
     if (millis() > ledDisableTime) {
@@ -798,64 +644,6 @@ void buttons_optocoupler_loop() {
   }
 }
 
-void temp_sensor_loop() {
-  if (millis() > tempAvailableTime) {
-    currentTemperature = sensorTemp.getTempC(tempDeviceAddress);
-
-    if (currentTemperature == -127) {
-      Log.println("Temperature sensor does not react, perhaps not available?");
-    } else {
-      if (currentTemperature != previousTemperature) {
-        previousTemperature = currentTemperature;
-        temperature = currentTemperature;
-        Serial.print("Temp. changed, current temp. = ");
-        Serial.print(temperature);
-        Serial.println(" degrees C");
-      }
-    }
-    sensorTemp.requestTemperaturesByAddress(tempDeviceAddress);
-    tempAvailableTime = millis() + conversionTime;
-    if (temperature <= TEMP_IS_HIGH_LEVEL) {
-      if (tempIsHigh) {
-        Log.println("Temperature is OK now (below warning threshold)");
-      }
-      tempIsHigh = false;
-      if (ErrorTempIsTooHigh)
-      {
-        firstTimeDisplayed = true;
-      }
-      ErrorTempIsTooHigh = false;
-      tempIsTooHighStart = 0;
-    } else {
-      if (!tempIsHigh) {
-        Log.println("WARNING: temperature is above warning level. Please check compressor");
-      }
-      tempIsHigh = true;
-      if ((temperature > TEMP_IS_TOO_HIGH_LEVEL) && !ErrorTempIsTooHigh) {
-        if (tempIsTooHighStart == 0) {
-          tempIsTooHighStart = millis();
-        } else {
-          if (millis() > (tempIsTooHighStart + MAX_TEMP_IS_TOO_HIGH_WINDOW)) {
-            firstTimeDisplayed = true;
-            ErrorTempIsTooHigh = true;
-            if (!ERRORLOWOILLEVEL) {
-              Log.println("ERROR: Temperature is too high, compressor will be disabled. Please check compressor!");
-            } else {
-              Log.println("ERROR: Temperature is too high, please check compressor!");
-            }
-          }
-        }
-      } else {
-        if ((temperature <= TEMP_IS_TOO_HIGH_LEVEL) && ErrorTempIsTooHigh) {
-          tempIsTooHighStart = 0;
-          ErrorTempIsTooHigh = false;
-          firstTimeDisplayed = true;
-          Log.println("WARNING: Temperature is below error level now, but still above warning level. Please check compressor!");
-        }
-      }
-    }
-  }
-}
 
 void pressure_sensor_loop() {
   if (millis() > pressureNextSampleTime) {
@@ -890,193 +678,6 @@ void pressure_sensor_loop() {
   }
 }
 
-void display_loop() {
-  char outputStr[20];
-
-  if (!ErrorOilLevelIsTooLow && !ErrorTempIsTooHigh) {
-    if (currentDisplayState == ERRORDISPLAY) {
-      firstTimeDisplayed = true;
-      previousTempIsHigh = !tempIsHigh;
-      u8x8.clearDisplay();
-      currentDisplayState = NORMALDISPLAY;
-    }
-  } else {
-    if (currentDisplayState == NORMALDISPLAY) {
-      firstTimeDisplayed = true;
-      u8x8.clearDisplay();
-      currentDisplayState = ERRORDISPLAY;
-    }
-  }
-
-  switch (currentDisplayState)
-  {
-    case NORMALDISPLAY:
-      if (millis() > updateDisplayTime)
-      {
-        updateDisplayTime = millis() + DISPLAY_WINDOW;
-
-        if ((pressure != lastPressureDisplayed) || firstTimeDisplayed) {
-          lastPressureDisplayed = pressure;
-          u8x8.setFont(u8x8_font_px437wyse700b_2x2_f);
-          sprintf(outputStr, "%4.2f MPa", pressure); 
-          u8x8.drawString(0, 0, "Pressure");
-          u8x8.drawString(0, 2, outputStr);
-        }
-        if ((temperature != lastTempDisplayed) || firstTimeDisplayed) {
-          lastTempDisplayed = temperature;
-          u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          if (temperature < -100) {
-            sprintf(outputStr, "Temp.: N.A.     ");
-          } else {
-            sprintf(outputStr, "Temp.:%7.2f %cC", temperature, 176);
-          }
-          u8x8.drawString(0, 5, outputStr);
-          if ((previousTempIsHigh != tempIsHigh) || (previousErrorTempIsTooHigh != ErrorTempIsTooHigh)) {
-            if (ErrorTempIsTooHigh) {
-              showStatusOnDisplay(ERRORHIGHTEMP);
-            } else {
-              if (tempIsHigh) {
-                showStatusOnDisplay(WARNINGHIGHTEMP);
-              } else {
-                showStatusOnDisplay(NOSTATUS);
-              }
-            }
-            previousErrorTempIsTooHigh = ErrorTempIsTooHigh;  
-            previousTempIsHigh = tempIsHigh;
-          }
-        }
-        if ((machinestate != laststateDisplayed)  || firstTimeDisplayed) {
-          laststateDisplayed = machinestate;
-          u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          u8x8.drawString(0, 7, "Machine state:  ");
-          switch (machinestate) {
-            case BOOTING:
-                sprintf(outputStr, "Booting         ");
-              break;
-            case OUTOFORDER:
-                sprintf(outputStr, "Out of order    ");
-              break;
-            case REBOOT:
-                sprintf(outputStr, "Reboot          ");
-              break;
-            case TRANSIENTERROR:
-                sprintf(outputStr, "Transient error ");
-              break;
-            case NOCONN:
-                sprintf(outputStr, "No connection   ");
-              break;
-            case SWITCHEDOFF:
-                sprintf(outputStr, "Switched off    ");
-              break;
-            case POWERED:
-                sprintf(outputStr, "On, motor off   ");
-              break;
-            case RUNNING:
-                sprintf(outputStr, "Motor is running");
-            break;
-          }      
-          u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          u8x8.drawString(0, 8, outputStr);
-        }
-        if ((oilLevelIsTooLow != lastOilLevelDisplayed)  || firstTimeDisplayed) {
-          lastOilLevelDisplayed = oilLevelIsTooLow;
-          if (oilLevelIsTooLow) {
-            showStatusOnDisplay(ERRORLOWOILLEVEL);
-          } else {
-            showStatusOnDisplay(NOLOWOILLEVEL);
-          }
-        }
-
-        if ((machinestate == POWERED) || firstTimeDisplayed) {
-          if (machinestate < POWERED) {
-            powered = (float)powered_total / 3600.0;
-          } else {
-            powered = ((float)powered_total + ((float)millis() - float(powered_last)) / 1000.0) / 3600.0;
-          }
-
-          if ((powered != lastPoweredDisplayed) || firstTimeDisplayed) {
-            lastPoweredDisplayed = powered;
-            u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-            sprintf(outputStr, "On: %9.2f hr", powered);
-            u8x8.drawString(0, 12, outputStr);
-          }
-        }
-
-        if ((machinestate == RUNNING) || firstTimeDisplayed) {
-          if (machinestate < RUNNING) {
-            running = (float)running_total / 3600.0;
-          } else {
-            running = ((float)running_total + ((float)millis() - (float)running_last) / 1000.0) / 3600.0;
-          }
-
-          if ((running != lastRunningDisplayed) || firstTimeDisplayed) {
-            lastRunningDisplayed = running;
-            u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-            sprintf(outputStr, "Run:%9.2f hr", running);
-            u8x8.drawString(0, 13, outputStr);
-          }
-        }
-        firstTimeDisplayed = false;
-      }
-
-      if (showStatusTemporarily && (millis() > clearStatusLineTime)) {
-        if (tempIsHigh) {
-          showStatusOnDisplay(WARNINGHIGHTEMP);
-        } else {
-          if (ErrorTempIsTooHigh) {
-            showStatusOnDisplay(ERRORHIGHTEMP);
-          } else {
-            showStatusOnDisplay(NOSTATUS);
-          }
-        }
-        showStatusTemporarily = false;
-      }
-
-    break;
-    case ERRORDISPLAY:
-      if (firstTimeDisplayed) {
-        u8x8.setFont(u8x8_font_px437wyse700a_2x2_r);
-        u8x8.drawString(0, 0, "MAINTAIN");
-        u8x8.drawString(0, 2, "COMPRSR.");
-        if (ErrorOilLevelIsTooLow) {
-          u8x8.setFont(u8x8_font_chroma48medium8_r);
-          u8x8.drawString(0, 5, "OIL LEVEL       ");
-          u8x8.drawString(0, 6, "TOO LOW         ");
-        } else {
-          u8x8.setFont(u8x8_font_chroma48medium8_r);
-          u8x8.drawString(0, 5, "                ");
-          u8x8.drawString(0, 6, "                ");
-        }                     
-        if (ErrorTempIsTooHigh) {
-          u8x8.setFont(u8x8_font_chroma48medium8_r);
-          u8x8.drawString(0, 8, "TEMPERATURE     ");
-          u8x8.drawString(0, 9, "TOO HIGH        ");
-        } else {
-          u8x8.setFont(u8x8_font_chroma48medium8_r);
-          u8x8.drawString(0, 8, "                ");
-          u8x8.drawString(0, 9, "                ");
-        }
-        u8x8.setFont(u8x8_font_px437wyse700a_2x2_r);
-        u8x8.drawString(0, 12, "COMPRSR.");  
-        u8x8.drawString(0, 14, "DISABLED");
-      }
-      if (ErrorTempIsTooHigh) {
-        if ((temperature != lastTempDisplayed) || firstTimeDisplayed) {
-          lastTempDisplayed = temperature;
-          u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          sprintf(outputStr, "Temp.:%7.2f %cC", temperature, 176);
-          u8x8.drawString(0, 10, outputStr);
-        }
-      } else {
-        u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-        u8x8.drawString(0, 10, "                ");
-      }
-
-      firstTimeDisplayed = false;
-    break;
-  }
-}
-
 void oil_level_sensor_loop() {
   if (oilLevel.state() == TO_LOW_OIL_LEVEL) {
     oilLevelIsTooLow = true;
@@ -1088,7 +689,7 @@ void oil_level_sensor_loop() {
         ErrorOilLevelIsTooLow = true;
         if ((ErrorOilLevelIsTooLow != previousErrorOilLevelIsTooLow) || (millis() > oilLevelNextLoggingTime)) {
           if (ErrorOilLevelIsTooLow != previousErrorOilLevelIsTooLow) {
-            firstTimeDisplayed = true;
+            nextTimeDisplay = true;
           }
           oilLevelNextLoggingTime = millis() + OIL_LEVEL_LOG_WINDOW;
           previousErrorOilLevelIsTooLow = ErrorOilLevelIsTooLow;
@@ -1104,7 +705,7 @@ void oil_level_sensor_loop() {
     }
   } else {
     if(ErrorOilLevelIsTooLow) {
-       firstTimeDisplayed = true;
+       nextTimeDisplay = true;
        Log.println("SOLVED: Oil level error");
     }
     oilLevelIsTooLow = false;
@@ -1135,7 +736,7 @@ void compressorLoop() {
       }
       if (millis() > autoPowerOff) {
         Log.println("Timeout: compressor automatically switched off");
-        showStatusOnDisplay(TIMEOUT);
+        theOledDisplay.showStatus(TIMEOUT, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
       }
     }
   } else {
@@ -1177,11 +778,15 @@ void compressorLoop() {
 void loop() {
   node.loop();
 
-  temp_sensor_loop();
+  theTempSensor.loop();
   oilLevel.update();
   pressure_sensor_loop();
 
-  display_loop();
+  theOledDisplay.loop(oilLevelIsTooLow, ErrorOilLevelIsTooLow, temperature, tempIsHigh, 
+                      ErrorTempIsTooHigh, pressure, machinestate, 
+                      TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL,
+                      powered_total, powered_last,
+                      running_total, running_last);
 
   compressorLoop();
 
@@ -1263,6 +868,11 @@ void loop() {
       }
       break;
 
+    case WAITINGFORCARD:
+    case CHECKINGCARD:
+      // should not come here, so bail out
+      machinestate = REBOOT;
+      break;
     case TRANSIENTERROR:
     case OUTOFORDER:
     case NOCONN:
