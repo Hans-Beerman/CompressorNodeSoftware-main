@@ -13,6 +13,7 @@
 
 #define TEMP_RESOLUTION (12) // 9, 10, 11 or 12 bit resolution of the ADC in the temperature sensor
 #define MAX_TEMP_CONVERSIONTIME (750) // in ms
+#define MAX_NR_OF_TRIES 3
 
 #define MAX_TEMP_IS_TOO_HIGH_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is only signalled after this time window is passed
 
@@ -26,6 +27,7 @@ float currentTemperature;
 float temperature;
 bool tempIsHigh;
 bool ErrorTempIsTooHigh;
+int tryCount;
 
 TemperatureSensor::TemperatureSensor(float tempIsHighLevel, float tempIsTooHighLevel) {
 	theTempIsHighLevel = tempIsHighLevel;
@@ -40,6 +42,7 @@ void TemperatureSensor::begin() {
   sensorTemp.setWaitForConversion(false);
   sensorTemp.requestTemperaturesByAddress(tempDeviceAddress);
   tempAvailableTime = millis() + conversionTime;
+  tryCount = MAX_NR_OF_TRIES;
 }
 
 void TemperatureSensor::loop() {
@@ -47,16 +50,25 @@ void TemperatureSensor::loop() {
     currentTemperature = sensorTemp.getTempC(tempDeviceAddress);
 
     if (currentTemperature == -127) {
-      Log.println("Temperature sensor does not react, perhaps not available?");
+      if (tryCount > 0) {
+        tryCount--;
+        tempAvailableTime = millis() + conversionTime;
+        return;
+      } else {
+        Log.println("Temperature sensor does not react, perhaps not available?");
+      }
     } else {
       if (currentTemperature != previousTemperature) {
         previousTemperature = currentTemperature;
         temperature = currentTemperature;
+/*        
         Serial.print("Temp. changed, current temp. = ");
         Serial.print(temperature);
         Serial.println(" degrees C");
+*/        
       }
     }
+    tryCount = MAX_NR_OF_TRIES;
     sensorTemp.requestTemperaturesByAddress(tempDeviceAddress);
     tempAvailableTime = millis() + conversionTime;
     if (temperature <= theTempIsHighLevel) {

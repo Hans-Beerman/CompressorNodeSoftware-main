@@ -87,7 +87,7 @@ void OledDisplay::begin() {
   u8x8.drawString(0, 0, "CompNode");
 
   u8x8.setFont(u8x8_font_px437wyse700b_2x2_r);
-  u8x8.drawString(0, 2, "  V0.1  ");
+  u8x8.drawString(0, 2, "  V0.2  ");
 
   u8x8.setFont(u8x8_font_chroma48medium8_r);
   u8x8.drawString(0, 4, " c Hans Beerman ");
@@ -259,7 +259,7 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
           }
         }
 
-        if ((machinestate == POWERED) || nextTimeDisplay) {
+        if ((machinestate >= POWERED) || nextTimeDisplay) {
           if (machinestate < POWERED) {
             poweredTime = (float)powered_total / 3600.0;
           } else {

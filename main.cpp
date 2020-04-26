@@ -93,6 +93,8 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 // DISABLED_TIME_START to DISABLED_START_END
 // Pressing the on button longer than MAX_WAIT_TIME_BUTTON_ON_PRESSED will override this behaviour by
 // switching on the compressor anyhow. In all cases the compressor will switch of after AUTOTIMEOUT (in ms)
+// unless the button on is pressed again or a new auto on command is received while the compressor is
+// already switched on. In both cases the time will be extended by AUTOTIMEOUT ms.
 #define DISABLE_COMPRESSOR_AT_LATE_HOURS (true)
 #define DISABLED_TIME_START (19) // in hour, time from which the compressor is not automatically switched on
 #define DISABLED_TIME_END (8) // in hour, time to which the compressor is not automatically switched on
@@ -171,15 +173,21 @@ char reportStr[128];
 
 unsigned long DurationCounterSave;
 
-unsigned long buttonOnPressedTime;
+unsigned long verifyButtonOnPressedTime;
 bool buttonOnIsPressed = false;
+bool verifyButtonOnIsStillPressed = false;
+
+bool buttonOffIsPressed = false;
 
 unsigned long ledDisableTime = 0;
 unsigned long nextLedDisableTime = 0;
 bool showLedDisable = false;
+bool disableLedIsOn = false;
 
 unsigned long autoPowerOff;
 bool compressorIsOn = false;
+
+IPAddress theLocalIPAddress;
 
 void checkClearEEPromAndCacheButtonPressed(void) {
   unsigned long ButtonPressedTime;
@@ -405,11 +413,42 @@ void setup() {
   // init temperature sensor and start reading first value
   theTempSensor.begin();
 
-  buttonOn.setCallback([](int state) {
-    Debug.printf("Button On changed to %d\n", state);
+  opto1.onOptoChange([](OptoDebounce::state_t state) {
+
+    if (state) {
+      if (machinestate == POWERED) {
+        machinestate = RUNNING;
+        digitalWrite(LED2, 1);
+      }
+    } else {
+      if (machinestate > POWERED) {
+        machinestate = POWERED;
+        digitalWrite(LED2, 0);
+      }
+    }
   });
+
+
+  buttonOn.setCallback([](int state) {
+    // Debug.printf("Button On changed to %d\n", state);
+    if ((state == BUTTON_ON_PRESSED) && !ErrorOilLevelIsTooLow && !ErrorTempIsTooHigh && (buttonOff.state() != BUTTON_OFF_PRESSED) && (machinestate == SWITCHEDOFF)) {
+      buttonOnIsPressed = true;
+    } else {
+      if (machinestate > SWITCHEDOFF) {
+        autoPowerOff = millis() + AUTOTIMEOUT;
+      }
+      buttonOnIsPressed = false;
+      verifyButtonOnIsStillPressed = false;
+    }
+  });
+
   buttonOff.setCallback([](int state) {
-    Debug.printf("Button Off changed to %d\n", state);
+//    Debug.printf("Button Off changed to %d\n", state);
+    if ((state == BUTTON_OFF_PRESSED) && (buttonOn.state() != BUTTON_ON_PRESSED) && (machinestate >= POWERED)) {
+      buttonOffIsPressed = true;
+    } else {
+      buttonOffIsPressed = false;
+    }
   });
 
   theOilLevelSensor.begin();
@@ -495,6 +534,10 @@ void setup() {
     sprintf(reportStr, "%5.3f MPa", pressure);
     report["pressure_sensor"] = reportStr;
 
+    theLocalIPAddress = node.localIP();
+    report["IPAddress"] = theLocalIPAddress.toString();
+
+
 #ifdef OTA_PASSWD
     report["ota"] = true;
 #else
@@ -535,23 +578,8 @@ void buttons_optocoupler_loop() {
   buttonOn.update();
   buttonOff.update();
 
-  if (opto1.state()) {
-    if (machinestate == POWERED) {
-      machinestate = RUNNING;
-      digitalWrite(LED2, 1);
-    }
-  } else {
-    if (machinestate > POWERED) {
-      machinestate = POWERED;
-      digitalWrite(LED2, 0);
-    }
-  }
-
-  if ((buttonOn.state() == BUTTON_ON_PRESSED && machinestate == SWITCHEDOFF) && (buttonOff.state() != BUTTON_ON_PRESSED)) {
-    if (ErrorOilLevelIsTooLow || ErrorTempIsTooHigh) {
-      // Compressor must remain disabled, until these errors, which can demage the compressor, are solved
-      return;
-    }
+  if (buttonOnIsPressed) {
+    buttonOnIsPressed = false;
     if (!compressorIsDisabeled()) {
       Log.printf("Compressor switched on with button\n");
       digitalWrite(RELAY_GPIO, 1);
@@ -561,28 +589,26 @@ void buttons_optocoupler_loop() {
       machinestate = POWERED;
       autoPowerOff = millis() + AUTOTIMEOUT;
       theOledDisplay.showStatus(MANUALSWITCHON, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
+      verifyButtonOnIsStillPressed = false;
     } else {
-      if (!buttonOnIsPressed) {
-        buttonOnPressedTime = millis();
-        theOledDisplay.showStatus(POWERONDISABLED, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
-        Log.println("Power on denied!");
-        Log.println("Power on is disabled during evening/night window");
-        // flash LED to show that function is disabled
-        ledDisableTime = millis() + LED_DISABLE_DURATION;
-        nextLedDisableTime = millis() + LED_DISABLE_PERIOD;
-        showLedDisable = true;
-        digitalWrite(LED1, 1);
-      }
-      buttonOnIsPressed = true;
+      verifyButtonOnPressedTime = millis() + MAX_WAIT_TIME_BUTTON_ON_PRESSED;
+      theOledDisplay.showStatus(POWERONDISABLED, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
+      Log.println("Power on denied!");
+      Log.println("Power on is disabled during evening/night window");
+      // flash LED to show that function is disabled
+      ledDisableTime = millis() + LED_DISABLE_DURATION;
+      nextLedDisableTime = millis() + LED_DISABLE_PERIOD;
+      showLedDisable = true;
+      digitalWrite(LED1, 1);
+      disableLedIsOn = true;
+      verifyButtonOnIsStillPressed = true;
     }
   }
 
-  if (buttonOnIsPressed) {
-    if ((digitalRead(ON_BUTTON) != BUTTON_ON_PRESSED) && (millis() < (buttonOnPressedTime + MAX_WAIT_TIME_BUTTON_ON_PRESSED))) {
-      buttonOnIsPressed = false;
-    } else {
-      if ((digitalRead(ON_BUTTON) == BUTTON_ON_PRESSED) && (millis() >= (buttonOnPressedTime + MAX_WAIT_TIME_BUTTON_ON_PRESSED))) {
-        buttonOnIsPressed = false;
+  if (verifyButtonOnIsStillPressed) {
+    if (millis() > verifyButtonOnPressedTime) {
+      if (buttonOn.state() == BUTTON_ON_PRESSED) {
+        verifyButtonOnIsStillPressed = false;
         digitalWrite(RELAY_GPIO, 1);
         digitalWrite(LED1, 1);
         digitalWrite(LED2, 0);
@@ -592,10 +618,11 @@ void buttons_optocoupler_loop() {
         theOledDisplay.showStatus(MANUALOVERRIDE, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
         Log.println("Warning: compressor was switched on using manual override!");
       }
-    }
+    } 
   }
 
-  if ((buttonOff.state() == BUTTON_OFF_PRESSED && machinestate >= POWERED) && (buttonOn.state() != BUTTON_ON_PRESSED)) {
+  if (buttonOffIsPressed) {
+    buttonOffIsPressed = false;
     Log.printf("Compressor switched off with button\n");
     digitalWrite(RELAY_GPIO, 0);
     digitalWrite(LED1, 0);
@@ -604,15 +631,22 @@ void buttons_optocoupler_loop() {
     machinestate = SWITCHEDOFF;
     theOledDisplay.showStatus(MANUALSWITCHOFF, TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL);
   };
+  
   if (showLedDisable) {
-    if (millis() > ledDisableTime) {
-      showLedDisable = false;
-      digitalWrite(LED1, 0);
-    } else {
-      if (millis() > nextLedDisableTime) {
-        nextLedDisableTime = millis() + LED_DISABLE_PERIOD;
-        digitalWrite(LED1, !digitalRead(LED1));
+    if (millis() < ledDisableTime) {
+      if (millis() >= nextLedDisableTime) {
+        nextLedDisableTime = /* millis() */ nextLedDisableTime + LED_DISABLE_PERIOD;
+        if (disableLedIsOn) {
+          digitalWrite(LED1, 0);
+        } else {
+          digitalWrite(LED1, 1);
+        }
+        disableLedIsOn = !disableLedIsOn;
       }
+    } else {
+      showLedDisable = false;
+      disableLedIsOn = false;
+      digitalWrite(LED1, 0);
     }
   }
 }
@@ -654,10 +688,12 @@ void compressorLoop() {
     }
   }
 
-  if (!ErrorOilLevelIsTooLow && !ErrorTempIsTooHigh && ledIsBlinking) {
-    digitalWrite(LED1, 0);
-    digitalWrite(LED2, 0);
-    ledIsBlinking = false;
+  if (ledIsBlinking) {
+    if (!ErrorOilLevelIsTooLow && !ErrorTempIsTooHigh) {
+      digitalWrite(LED1, 0);
+      digitalWrite(LED2, 0);
+      ledIsBlinking = false;
+    }
   }
 
   // save duration counters in EEProm every SAVE_DURATION_COUNTERS_WINDOW number of seconds
@@ -672,27 +708,53 @@ void compressorLoop() {
     saveDurationCounters();
   }
 }
-
+/*
+unsigned long startTime = 0;
+unsigned long afterNodeLoop = 0;
+unsigned long afterTempLoop = 0;
+unsigned long afterPressureLoop = 0;
+unsigned long afterOledLoop = 0;
+unsigned long afterCompressorLoop = 0;
+unsigned long afterButtonLoop = 0;
+unsigned long afterOilLevelLoop = 0;
+unsigned long atEndLoop = 0;
+int count = 0;
+*/
 void loop() {
+
+//  startTime = millis();
+
   node.loop();
 
+//  afterNodeLoop += (millis() - startTime);
+
   theTempSensor.loop();
+
+//  afterTempLoop += (millis() - startTime);
   
   thePressureSensor.loop();
 
-  theOledDisplay.loop(oilLevelIsTooLow, ErrorOilLevelIsTooLow, temperature, tempIsHigh, 
-                      ErrorTempIsTooHigh, pressure, machinestate, 
-                      TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL,
-                      powered_total, powered_last,
-                      running_total, running_last);
+//  afterPressureLoop += (millis() - startTime);
+  
+  if (!showLedDisable) {
+    theOledDisplay.loop(oilLevelIsTooLow, ErrorOilLevelIsTooLow, temperature, tempIsHigh, 
+                        ErrorTempIsTooHigh, pressure, machinestate, 
+                        TEMP_IS_HIGH_LEVEL, TEMP_IS_TOO_HIGH_LEVEL,
+                        powered_total, powered_last,
+                        running_total, running_last);
+  }
 
+//  afterOledLoop += (millis() - startTime);
+  
   compressorLoop();
 
+//  afterCompressorLoop += (millis() - startTime);
+  
   if (laststate != machinestate) {
     Log.printf("Changed from state <%s> to state <%s>\n",
                state[laststate].label, state[machinestate].label);
 
-    if (machinestate == POWERED && laststate < POWERED) {
+    if (machinestate >= POWERED && laststate < POWERED) {
       powered_last = millis();
     } else if (laststate >= POWERED && machinestate < POWERED) {
       powered_total += (millis() - powered_last) / 1000;
@@ -719,8 +781,12 @@ void loop() {
 
   buttons_optocoupler_loop();
 
+//  afterButtonLoop += (millis() - startTime);
+
   theOilLevelSensor.loop();
 
+//  afterOilLevelLoop += (millis() - startTime);
+  
   switch (machinestate) {
     case REBOOT:
       saveDurationCounters();
@@ -757,13 +823,12 @@ void loop() {
       break;
     case RUNNING:
       // Compressor switched on and motor is running
-      {
         static unsigned long lastrunning = 0;
+
         if (millis() - lastrunning > 10 * 1000 || lastrunning == 0) {
-          Log.printf("Compressor switched on, motor is running\n");
+          Log.println("Compressor switched on, motor is running");
           lastrunning = millis();
         };
-      }
       break;
 
     case WAITINGFORCARD:
@@ -777,5 +842,40 @@ void loop() {
     case BOOTING:
       break;
   };
+
+/*
+  atEndLoop += (millis() - startTime);
+  count++;
+
+  if (count >= 20000) {
+
+    Log.print("After NodeLoop (ms) = ");
+    Log.println(afterNodeLoop);
+    Log.print("After TempLoop (ms) = ");
+    Log.println(afterTempLoop);
+    Log.print("After PressureLoop (ms) = ");
+    Log.println(afterPressureLoop);
+    Log.print("After OledLoop (ms) = ");
+    Log.println(afterOledLoop);
+    Log.print("After CompressorLoop (ms) = ");
+    Log.println(afterCompressorLoop);
+    Log.print("After ButtonLoop (ms) = ");
+    Log.println(afterButtonLoop);
+    Log.print("After OilLevelLoop (ms) = ");
+    Log.println(afterOilLevelLoop);
+    Log.print("At end of Loop (ms) = ");
+    Log.println(atEndLoop);
+
+    afterNodeLoop = 0;
+    afterTempLoop = 0;
+    afterPressureLoop = 0;
+    afterOledLoop = 0;
+    afterCompressorLoop = 0;
+    afterButtonLoop = 0;
+    afterOilLevelLoop = 0;
+    atEndLoop = 0;
+    count = 0;
+  }
+*/
 }
 

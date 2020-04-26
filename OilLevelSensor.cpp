@@ -14,11 +14,10 @@
 
 ButtonDebounce oilLevel(OILLEVELSENSOR, 300 /* mSeconds */); // to signal if the oil level is too low (or not)
 
-bool previousOilLevelIsTooLow = false;
 bool oilLevelIsTooLow = false;
+bool waitForError = false;
 unsigned long oilLevelNextLoggingTime = 0;
 unsigned long oilLevelIsTooLowStart = 0;
-bool previousErrorOilLevelIsTooLow = false;
 bool ErrorOilLevelIsTooLow = false;
 
 OilLevelSensor::OilLevelSensor() {
@@ -29,49 +28,53 @@ void OilLevelSensor::begin() {
   pinMode(OILLEVELSENSOR, INPUT_PULLUP);
 
   oilLevel.setCallback([](int state) {
-    Debug.printf("OilLevel sensor changed to %d\n", state);
+//    Debug.printf("OilLevel sensor changed to %d\n", state);
+    if (oilLevel.state() == TO_LOW_OIL_LEVEL) {
+      nextTimeDisplay = true;
+      oilLevelIsTooLow = true;
+      oilLevelIsTooLowStart = millis();
+      waitForError = true;
+      Log.println("Warning: Oil level is too low; Compressor will be disabled soon if this issue is not solved; Please verify the oil level and fill up if needed");
+    } else {
+      if (ErrorOilLevelIsTooLow) {
+        Log.println("SOLVED: Oil level error!");
+      } else {
+        if (oilLevelIsTooLow) {
+          Log.println("Oil level OK now!");
+        }
+      }
+      nextTimeDisplay = true;
+      oilLevelIsTooLow = false;
+      oilLevelIsTooLowStart = 0;
+      ErrorOilLevelIsTooLow = false;
+      waitForError = false;
+    }
   });
 }
 
 void OilLevelSensor::loop() {
   oilLevel.update();
-  if (oilLevel.state() == TO_LOW_OIL_LEVEL) {
-    oilLevelIsTooLow = true;
+  
+  if (waitForError) {
+    if ((millis() - oilLevelIsTooLowStart) >= MAX_OIL_LEVEL_IS_TOO_LOW_WINDOW) {
+      waitForError = false;
+      ErrorOilLevelIsTooLow = true;
+      nextTimeDisplay = true;
+      Log.println("ERROR: Oil level is too low; Compressor will be disabled; Please maintain the compressor by filling up the oil");
+    }
+  }
 
-    if (oilLevelIsTooLowStart == 0) {
-      oilLevelIsTooLowStart = millis();
+  if (millis() > oilLevelNextLoggingTime) {
+    if (ErrorOilLevelIsTooLow) {
+      Log.println("ERROR: Oil level is too low; Compressor will be disabled; Please maintain the compressor by filling up the oil");
     } else {
-      if ((millis() - oilLevelIsTooLowStart) >= MAX_OIL_LEVEL_IS_TOO_LOW_WINDOW) {
-        ErrorOilLevelIsTooLow = true;
-        if ((ErrorOilLevelIsTooLow != previousErrorOilLevelIsTooLow) || (millis() > oilLevelNextLoggingTime)) {
-          if (ErrorOilLevelIsTooLow != previousErrorOilLevelIsTooLow) {
-            nextTimeDisplay = true;
-          }
-          oilLevelNextLoggingTime = millis() + OIL_LEVEL_LOG_WINDOW;
-          previousErrorOilLevelIsTooLow = ErrorOilLevelIsTooLow;
-          Log.println("ERROR: Oil level is too low; Compressor will be disabled; Please maintain the compressor by filling up the oil");
-        }
+      if (oilLevelIsTooLow) {
+        Log.println("Warning: Oil level is too low; Compressor will be disabled soon if this issue is not solved; Please verify the oil level and fill up if needed");
+      } else {
+        Log.println("Oil level is OK!");
       }
     }
-    
-    if ((oilLevelIsTooLow != previousOilLevelIsTooLow) || (millis() > oilLevelNextLoggingTime)) {
-      oilLevelNextLoggingTime = millis() + OIL_LEVEL_LOG_WINDOW;
-      Log.println("Oil level is too low!");
-      previousOilLevelIsTooLow = oilLevelIsTooLow;
-    }
-  } else {
-    if(ErrorOilLevelIsTooLow) {
-       nextTimeDisplay = true;
-       Log.println("SOLVED: Oil level error");
-    }
-    oilLevelIsTooLow = false;
-    oilLevelIsTooLowStart = 0;
-    ErrorOilLevelIsTooLow = false;
-    previousErrorOilLevelIsTooLow = false;
-    if (oilLevelIsTooLow != previousOilLevelIsTooLow) {
-      Log.println("Oil level is OK now!");
-      previousOilLevelIsTooLow = oilLevelIsTooLow;
-    }
+    oilLevelNextLoggingTime = millis() + OIL_LEVEL_LOG_WINDOW;
   }
 }
 
