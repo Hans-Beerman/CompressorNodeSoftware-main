@@ -95,9 +95,9 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 // switching on the compressor anyhow. In all cases the compressor will switch of after AUTOTIMEOUT (in ms)
 // unless the button on is pressed again or a new auto on command is received while the compressor is
 // already switched on. In both cases the time will be extended by AUTOTIMEOUT ms.
-#define DISABLE_COMPRESSOR_AT_LATE_HOURS (true)
-#define DISABLED_TIME_START (19) // in hour, time from which the compressor is not automatically switched on
-#define DISABLED_TIME_END (8) // in hour, time to which the compressor is not automatically switched on
+#define DISABLE_COMPRESSOR_AT_LATE_HOURS      (true)
+#define DISABLED_TIME_START                   (19) // in hour, time from which the compressor is not automatically switched on
+#define DISABLED_TIME_END                     (8) // in hour, time to which the compressor is not automatically switched on
 #define MAX_WAIT_TIME_BUTTON_ON_PRESSED       (10000)  // in ms, time button on must be pressed to override late hour compressor disable
 #define LED_DISABLE_DURATION                  (5000)  // in ms, the time LED1 will flash if button on is pressed during late hour
 #define LED_DISABLE_PERIOD                    (200)  // in ms, the time LED1 will flash on/off

@@ -1,6 +1,6 @@
 **Source code CompressorNode Makerspace Leiden**
 
-Current version: V0.1 Concept
+Current version: V0.2 Concept
 
 This repository contains the source code for the CompressorNode used in the Makerspace Leiden.
 
@@ -16,7 +16,7 @@ This software is developed with Visual Studio Code in combination with the exten
 - _Button Off_: to manual switch off the compressor;
 - _Automatic switch on_: switch the compressor on by means of dedicated MQTT messages
 - _Automatic switch off_: switch the compressor off by means of dedicated MQTT mesages
-- _Timeout_: the compressor will automatically switch off after a certain (in source code) configured timeout, currently after 30 minutes;
+- _Timeout_: the compressor will automatically switch off after a certain (in source code) configured timeout, currently after 30 minutes. Pressing Button On again, while the compressor is switched on, will extend the timeout with the same amount;
 - _Late hour disable_: after a configured time in the evening (currently 19:00 h) and before a configured time in the morning (currently 08:00 h) the compressor is disabled to prevent too much noise for our neighbors. This means the compressor will not start automatically by means of MQTT messages. Also the compressor will not start if the Button On is pressed normally;
 - _Overrule late hour disable_: the late hour disable function can be overruled by pressing the Button On continuously for more than 10 seconds;
 - _230VAC relais output:_ to switch the compressor on or off;
@@ -98,9 +98,9 @@ _monitor\_speed = 115200_
 
 _board\_build.partitions = huge\_app.csv_
 
-**Configuration of the behavior of the Node**
+**Configuration of the behaviour of the Node**
 
-With the following parameters in the source code the behavior of the node can be controlled:
+With the following parameters in the source code the behaviour of the node can be controlled:
 
 - _Temperature limits:_
 
@@ -151,6 +151,10 @@ In main.cpp:
 // Pressing the on button longer than MAX\_WAIT\_TIME\_BUTTON\_ON\_PRESSED will override this behaviour by
 
 // switching on the compressor anyhow. In all cases the compressor will switch of after AUTOTIMEOUT (in ms)
+
+// unless the button on is pressed again or a new auto on command is received while the compressor is
+
+// already switched on. In both cases the time will be extended by AUTOTIMEOUT ms.
 
 #define DISABLE\_COMPRESSOR\_AT\_LATE\_HOURS (true)
 
@@ -263,3 +267,4 @@ In PressureSensor.cpp:
 In OilLevelSensor.cpp:
 
 #define MAX\_TEMP\_IS\_TOO\_HIGH\_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is only signalled after this time window is passed
+
