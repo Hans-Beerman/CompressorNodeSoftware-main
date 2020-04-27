@@ -2,6 +2,9 @@
 
 #include <MachState.h>
 
+// software version
+#define SOFTWARE_VERSION "  V0.3  "
+
 typedef enum {
   NOSTATUS,
   RELEASEBUTTON,

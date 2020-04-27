@@ -24,15 +24,18 @@
 // #define OB_POLLING
 
 // The GPIO pins used on the Olimax ESP32PoE
-#define RELAY_GPIO      (14)  // digital output
-#define ON_BUTTON       (15)  // digital input
-#define OFF_BUTTON      ( 5)  // digital input
-#define OPTO1           (36)  // digital input
-#define LED1            (32)  // digital output
-#define LED2            (33)  // digital output
-#define OILLEVELSENSOR  (39)  // digital input
-#define PRESSURESENSOR  (35)  // analog input
-#define TEMPSENSOR      ( 4)  // one wire digital input
+#define RELAY_GPIO                (14)  // digital output
+#define ON_BUTTON                 (15)  // digital input
+#define OFF_BUTTON                ( 5)  // digital input
+#define OPTO1                     (36)  // digital input
+#define LED1                      (32)  // digital output
+#define LED2                      (33)  // digital output
+#define OILLEVELSENSOR            (39)  // digital input
+#define PRESSURESENSOR            (35)  // analog input
+#define TEMPSENSOR                ( 4)  // one wire digital input
+#define INFO_CALIBRATION_BUTTON   (34)  // this is the same as the CLEAR_EEPROM_AND_CACHE_BUTTON, BUT1 of the ESP32-PoE
+                                        // pressing this button toggles Info / Calibration mode on of off. If on, IP address
+                                        // and calibration information will be logged via MQTT and telnet
 
 #include <Arduino.h>
 #include <MachState.h>
@@ -62,11 +65,13 @@ NTP ntp(wifiUDP);
 // define MACHINE "compressor"
 
 // button on and button off
-#define BUTTON_ON_PRESSED (LOW) // the input level of the GPIO port used for button on, if button on is pressed
-#define BUTTON_OFF_PRESSED (LOW) // the input level of te GPIO port used for button off. if button off is pressed
+#define BUTTON_ON_PRESSED (LOW) // the input level of the GPIO port used for button on, if this button is pressed
+#define BUTTON_OFF_PRESSED (LOW) // the input level of te GPIO port used for button off, if this button is pressed
+#define BUTTON_INFO_CALIBRATION_PRESSED (LOW) // the input level of te GPIO port used for button info and calibrations, if this button is pressed
 
 ButtonDebounce buttonOn(ON_BUTTON, 150 /* mSeconds */); // buttonOn is used to switch on the compressor
 ButtonDebounce buttonOff(OFF_BUTTON, 150 /* mSeconds */); // buttonOff is used to switch off the compressor
+ButtonDebounce buttonInfoCalibration(INFO_CALIBRATION_BUTTON, 150 /* mSeconds */); // buttonInfoCalibration is used to toggle Info / Calibration mode on/off
 
 // 230VAC optocoupler
 OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to detect if the motor has power (or not)
@@ -187,6 +192,7 @@ bool disableLedIsOn = false;
 unsigned long autoPowerOff;
 bool compressorIsOn = false;
 
+bool showInfoAndCalibration = false;
 IPAddress theLocalIPAddress;
 
 void checkClearEEPromAndCacheButtonPressed(void) {
@@ -451,6 +457,12 @@ void setup() {
     }
   });
 
+  buttonInfoCalibration.setCallback([](int state) {
+    if (state == BUTTON_INFO_CALIBRATION_PRESSED) {
+      showInfoAndCalibration = !showInfoAndCalibration;
+    }
+  });
+
   theOilLevelSensor.begin();
 
   node.onConnect([]() {
@@ -534,8 +546,8 @@ void setup() {
     sprintf(reportStr, "%5.3f MPa", pressure);
     report["pressure_sensor"] = reportStr;
 
-    theLocalIPAddress = node.localIP();
-    report["IPAddress"] = theLocalIPAddress.toString();
+//    theLocalIPAddress = node.localIP();
+//    report["IPAddress"] = theLocalIPAddress.toString();
 
 
 #ifdef OTA_PASSWD
@@ -707,35 +719,27 @@ void compressorLoop() {
 
     saveDurationCounters();
   }
-}
-/*
-unsigned long startTime = 0;
-unsigned long afterNodeLoop = 0;
-unsigned long afterTempLoop = 0;
-unsigned long afterPressureLoop = 0;
-unsigned long afterOledLoop = 0;
-unsigned long afterCompressorLoop = 0;
-unsigned long afterButtonLoop = 0;
-unsigned long afterOilLevelLoop = 0;
-unsigned long atEndLoop = 0;
-int count = 0;
-*/
-void loop() {
 
-//  startTime = millis();
+  if (showInfoAndCalibration && thePressureSensor.newCalibrationInfoAvailable) {
+    Log.println("Compressor Node Info");
+    Log.print("Software version :");
+    Log.println(SOFTWARE_VERSION);
+    theLocalIPAddress = node.localIP();
+    Log.print("IP address: ");
+    Log.println(theLocalIPAddress.toString());
+    thePressureSensor.logInfoCalibration();
+    Log.println("");
+  }
+}
+
+void loop() {
 
   node.loop();
 
-//  afterNodeLoop += (millis() - startTime);
-
   theTempSensor.loop();
 
-//  afterTempLoop += (millis() - startTime);
-  
   thePressureSensor.loop();
 
-//  afterPressureLoop += (millis() - startTime);
-  
   if (!showLedDisable) {
     theOledDisplay.loop(oilLevelIsTooLow, ErrorOilLevelIsTooLow, temperature, tempIsHigh, 
                         ErrorTempIsTooHigh, pressure, machinestate, 
@@ -744,12 +748,8 @@ void loop() {
                         running_total, running_last);
   }
 
-//  afterOledLoop += (millis() - startTime);
-  
   compressorLoop();
 
-//  afterCompressorLoop += (millis() - startTime);
-  
   if (laststate != machinestate) {
     Log.printf("Changed from state <%s> to state <%s>\n",
                state[laststate].label, state[machinestate].label);
@@ -781,12 +781,8 @@ void loop() {
 
   buttons_optocoupler_loop();
 
-//  afterButtonLoop += (millis() - startTime);
-
   theOilLevelSensor.loop();
 
-//  afterOilLevelLoop += (millis() - startTime);
-  
   switch (machinestate) {
     case REBOOT:
       saveDurationCounters();
@@ -843,39 +839,5 @@ void loop() {
       break;
   };
 
-/*
-  atEndLoop += (millis() - startTime);
-  count++;
-
-  if (count >= 20000) {
-
-    Log.print("After NodeLoop (ms) = ");
-    Log.println(afterNodeLoop);
-    Log.print("After TempLoop (ms) = ");
-    Log.println(afterTempLoop);
-    Log.print("After PressureLoop (ms) = ");
-    Log.println(afterPressureLoop);
-    Log.print("After OledLoop (ms) = ");
-    Log.println(afterOledLoop);
-    Log.print("After CompressorLoop (ms) = ");
-    Log.println(afterCompressorLoop);
-    Log.print("After ButtonLoop (ms) = ");
-    Log.println(afterButtonLoop);
-    Log.print("After OilLevelLoop (ms) = ");
-    Log.println(afterOilLevelLoop);
-    Log.print("At end of Loop (ms) = ");
-    Log.println(atEndLoop);
-
-    afterNodeLoop = 0;
-    afterTempLoop = 0;
-    afterPressureLoop = 0;
-    afterOledLoop = 0;
-    afterCompressorLoop = 0;
-    afterButtonLoop = 0;
-    afterOilLevelLoop = 0;
-    atEndLoop = 0;
-    count = 0;
-  }
-*/
 }
 

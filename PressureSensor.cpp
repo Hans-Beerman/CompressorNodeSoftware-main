@@ -19,6 +19,7 @@ float pressureVoltage = 0;
 float pressure = 0;
 unsigned long pressureNextSampleTime = 0;
 unsigned long pressureNextLogTime = 0;
+bool newCalibrationInfoAvailable = false;
 
 PressureSensor::PressureSensor() {
 	return;
@@ -33,6 +34,7 @@ void PressureSensor::loop() {
     }
     pressureVoltage = (((float)pressureADCVal - (float)PRESSURE_CALIBRATE_VALUE_0_5V) * 4.0) / ((float)PRESSURE_CALIBRATE_VALUE_4_5V - (float)PRESSURE_CALIBRATE_VALUE_0_5V) + 0.5;
     pressure = ((pressureVoltage - 0.5) / 4.0) * 1.2;
+    newCalibrationInfoAvailable = true;
 
     if (millis() > pressureNextLogTime) {
       pressureNextLogTime = millis() + PRESSURE_LOG_WINDOW;
@@ -56,3 +58,17 @@ void PressureSensor::loop() {
     // end calibration
   }
 }
+
+void PressureSensor::logInfoCalibration() {
+  Log.print("Pressure ADC = ");
+  Log.print(pressureADCVal);
+  Log.println(" bits");
+  Log.print("Pressure voltage = ");
+  Log.print(pressureVoltage);
+  Log.println(" V");
+  Log.print("Pressure = ");
+  Log.print(pressure);
+  Log.println(" MPa");
+  newCalibrationInfoAvailable = false;
+}
+

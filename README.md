@@ -1,6 +1,6 @@
 **Source code CompressorNode Makerspace Leiden**
 
-Current version: V0.2 Concept
+Current version: V0.3 Concept
 
 This repository contains the source code for the CompressorNode used in the Makerspace Leiden.
 
@@ -14,6 +14,7 @@ This software is developed with Visual Studio Code in combination with the exten
 
 - _Button On_: to manual switch on the compressor;
 - _Button Off_: to manual switch off the compressor;
+- _but1_: to toggle info / calibration mode on or off. but1 is the second button of the ESP32-PoE module. Press this button, when the node is running (the boot screen is not shown anymore). When info calibration mode is active each second e.g. the IP address and calibration info is logged to MQTT and telnet etc.
 - _Automatic switch on_: switch the compressor on by means of dedicated MQTT messages
 - _Automatic switch off_: switch the compressor off by means of dedicated MQTT mesages
 - _Timeout_: the compressor will automatically switch off after a certain (in source code) configured timeout, currently after 30 minutes. Pressing Button On again, while the compressor is switched on, will extend the timeout with the same amount;
@@ -267,4 +268,5 @@ In PressureSensor.cpp:
 In OilLevelSensor.cpp:
 
 #define MAX\_TEMP\_IS\_TOO\_HIGH\_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is only signalled after this time window is passed
+
 

@@ -87,7 +87,7 @@ void OledDisplay::begin() {
   u8x8.drawString(0, 0, "CompNode");
 
   u8x8.setFont(u8x8_font_px437wyse700b_2x2_r);
-  u8x8.drawString(0, 2, "  V0.2  ");
+  u8x8.drawString(0, 2, SOFTWARE_VERSION);
 
   u8x8.setFont(u8x8_font_chroma48medium8_r);
   u8x8.drawString(0, 4, " c Hans Beerman ");

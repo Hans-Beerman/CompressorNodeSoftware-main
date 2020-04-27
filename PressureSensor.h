@@ -6,5 +6,9 @@ class PressureSensor {
 public:
   PressureSensor();
   
+  bool newCalibrationInfoAvailable;
+  
   void loop();
+
+  void logInfoCalibration();
 };
