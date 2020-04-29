@@ -23,21 +23,32 @@ DallasTemperature sensorTemp(&oneWire);
 
 DeviceAddress tempDeviceAddress;
 
-float currentTemperature;
-float temperature;
-bool tempIsHigh;
-bool ErrorTempIsTooHigh;
-int tryCount;
+int currentTempSensor = 0;
+float temperature[MAX_TEMP_SENSORS];
+bool tempIsHigh[MAX_TEMP_SENSORS];
+bool ErrorTempIsTooHigh[MAX_TEMP_SENSORS];
 
 TemperatureSensor::TemperatureSensor(float tempIsHighLevel, float tempIsTooHighLevel) {
+  tempSensorNr = currentTempSensor++;
 	theTempIsHighLevel = tempIsHighLevel;
 	theTempIsTooHighLevel = tempIsTooHighLevel;
   conversionTime = MAX_TEMP_CONVERSIONTIME / (1 << (12 - TEMP_RESOLUTION));
 }
 
 void TemperatureSensor::begin() {
+  tempIsHigh[tempSensorNr] = false;
+  ErrorTempIsTooHigh[tempSensorNr] = false;
   sensorTemp.begin();
-  sensorTemp.getAddress(tempDeviceAddress, 0);
+
+  tempSensorAvailable = sensorTemp.getAddress(tempDeviceAddress, tempSensorNr);
+  if (!tempSensorAvailable) {
+    temperature[tempSensorNr] = -127;
+
+    Log.print("Temperature sensor ");
+    Log.print(tempSensorNr + 1);
+    Log.println(": not detected at init node!");
+    return;
+  }
   sensorTemp.setResolution(tempDeviceAddress, TEMP_RESOLUTION);
   sensorTemp.setWaitForConversion(false);
   sensorTemp.requestTemperaturesByAddress(tempDeviceAddress);
@@ -46,6 +57,9 @@ void TemperatureSensor::begin() {
 }
 
 void TemperatureSensor::loop() {
+  if (!tempSensorAvailable) {
+    return;
+  }
   if (millis() > tempAvailableTime) {
     currentTemperature = sensorTemp.getTempC(tempDeviceAddress);
 
@@ -55,15 +69,19 @@ void TemperatureSensor::loop() {
         tempAvailableTime = millis() + conversionTime;
         return;
       } else {
-        Log.println("Temperature sensor does not react, perhaps not available?");
+        Log.print("Temperature sensor ");
+        Log.print(tempSensorNr + 1);
+        Log.println(" does not react, perhaps not available?");
       }
     } else {
       if (currentTemperature != previousTemperature) {
         previousTemperature = currentTemperature;
-        temperature = currentTemperature;
+        temperature[tempSensorNr] = currentTemperature;
 /*        
-        Serial.print("Temp. changed, current temp. = ");
-        Serial.print(temperature);
+        Serial.print("Temperature ");
+        Serial.print(tempSensor + 1);
+        Serial.print(" changed, current temperature = ");
+        Serial.print(temperature[tempSensorNr]);
         Serial.println(" degrees C");
 */        
       }
@@ -71,42 +89,50 @@ void TemperatureSensor::loop() {
     tryCount = MAX_NR_OF_TRIES;
     sensorTemp.requestTemperaturesByAddress(tempDeviceAddress);
     tempAvailableTime = millis() + conversionTime;
-    if (temperature <= theTempIsHighLevel) {
-      if (tempIsHigh) {
+    if (temperature[tempSensorNr] <= theTempIsHighLevel) {
+      if (tempIsHigh[tempSensorNr]) {
         Log.println("Temperature is OK now (below warning threshold)");
       }
-      tempIsHigh = false;
-      if (ErrorTempIsTooHigh)
+      tempIsHigh[tempSensorNr] = false;
+      if (ErrorTempIsTooHigh[tempSensorNr])
       {
         nextTimeDisplay = true;
       }
-      ErrorTempIsTooHigh = false;
+      ErrorTempIsTooHigh[tempSensorNr] = false;
       tempIsTooHighStart = 0;
     } else {
-      if (!tempIsHigh) {
-        Log.println("WARNING: temperature is above warning level. Please check compressor");
+      if (!tempIsHigh[tempSensorNr]) {
+        Log.print("WARNING: temperature sensor ");
+        Log.print(tempSensorNr + 1);
+        Log.println(" is above warning level. Please check compressor");
       }
-      tempIsHigh = true;
-      if ((temperature > theTempIsTooHighLevel) && !ErrorTempIsTooHigh) {
+      tempIsHigh[tempSensorNr] = true;
+      if ((temperature[tempSensorNr] > theTempIsTooHighLevel) && !ErrorTempIsTooHigh[tempSensorNr]) {
         if (tempIsTooHighStart == 0) {
           tempIsTooHighStart = millis();
         } else {
           if (millis() > (tempIsTooHighStart + MAX_TEMP_IS_TOO_HIGH_WINDOW)) {
             nextTimeDisplay = true;
-            ErrorTempIsTooHigh = true;
+            ErrorTempIsTooHigh[tempSensorNr] = true;
             if (!ERRORLOWOILLEVEL) {
-              Log.println("ERROR: Temperature is too high, compressor will be disabled. Please check compressor!");
+              Log.print("ERROR, sensor ");
+              Log.print(tempSensorNr + 1);
+              Log.println(": Temperature is too high, compressor will be disabled. Please check compressor!");
             } else {
-              Log.println("ERROR: Temperature is too high, please check compressor!");
+              Log.print("ERROR, sensor ");
+              Log.print(tempSensorNr + 1);
+              Log.println(": Temperature is too high, please check compressor!");
             }
           }
         }
       } else {
-        if ((temperature <= theTempIsTooHighLevel) && ErrorTempIsTooHigh) {
+        if ((temperature[tempSensorNr] <= theTempIsTooHighLevel) && ErrorTempIsTooHigh[tempSensorNr]) {
           tempIsTooHighStart = 0;
-          ErrorTempIsTooHigh = false;
+          ErrorTempIsTooHigh[tempSensorNr] = false;
           nextTimeDisplay = true;
-          Log.println("WARNING: Temperature is below error level now, but still above warning level. Please check compressor!");
+          Log.print("WARNING, sensor ");
+          Log.print(tempSensorNr + 1);
+          Log.println(": Temperature is below error level now, but still above warning level. Please check compressor!");
         }
       }
     }
