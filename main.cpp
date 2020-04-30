@@ -550,8 +550,13 @@ void setup() {
   node.onReport([](JsonObject  & report) {
     report["state"] = state[machinestate].label;
 
-    report["powered_time"] = powered_total + ((machinestate == POWERED) ? ((millis() - powered_last) / 1000) : 0);
-    report["running_time"] = running_total + ((machinestate == RUNNING) ? ((millis() - running_last) / 1000) : 0);
+    powered = ((float)powered_total + ((machinestate == POWERED) ? (float)((millis() - powered_last) / 1000) : 0)) / 3600;
+    running = ((float)running_total + ((machinestate == RUNNING) ? (float)((millis() - running_last) / 1000) : 0)) / 3600;
+
+    sprintf(reportStr, "%f hours", powered);
+    report["powered_time"] = reportStr;
+    sprintf(reportStr, "%f hours", running);
+    report["running_time"] = reportStr;
 
     if (temperature[0] == -127) {
       sprintf(reportStr, "Error reading temperature sensor 1, perhaps not connected?");

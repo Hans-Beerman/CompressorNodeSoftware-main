@@ -1,7 +1,6 @@
 #include "TempSensor.h"
 #include "OledDisplay.h"
 #include <OneWire.h> 
-#include <DallasTemperature.h> // install DallasTemperature by Miles Burton
 #include <ACNode.h>
 
 #ifndef TEMPSENSOR
@@ -20,8 +19,6 @@
 // temperature sensor
 OneWire oneWire(ONE_WIRE_BUS); // used for the temperature sensor
 DallasTemperature sensorTemp(&oneWire);
-
-DeviceAddress tempDeviceAddress;
 
 int currentTempSensor = 0;
 float temperature[MAX_TEMP_SENSORS];
@@ -91,7 +88,9 @@ void TemperatureSensor::loop() {
     tempAvailableTime = millis() + conversionTime;
     if (temperature[tempSensorNr] <= theTempIsHighLevel) {
       if (tempIsHigh[tempSensorNr]) {
-        Log.println("Temperature is OK now (below warning threshold)");
+        Log.print("Temperature sensor");
+        Log.print(tempSensorNr + 1);
+        Log.println(" is OK now (below warning threshold)");
       }
       tempIsHigh[tempSensorNr] = false;
       if (ErrorTempIsTooHigh[tempSensorNr])
@@ -114,15 +113,9 @@ void TemperatureSensor::loop() {
           if (millis() > (tempIsTooHighStart + MAX_TEMP_IS_TOO_HIGH_WINDOW)) {
             nextTimeDisplay = true;
             ErrorTempIsTooHigh[tempSensorNr] = true;
-            if (!ERRORLOWOILLEVEL) {
-              Log.print("ERROR, sensor ");
-              Log.print(tempSensorNr + 1);
-              Log.println(": Temperature is too high, compressor will be disabled. Please check compressor!");
-            } else {
-              Log.print("ERROR, sensor ");
-              Log.print(tempSensorNr + 1);
-              Log.println(": Temperature is too high, please check compressor!");
-            }
+            Log.print("ERROR, sensor ");
+            Log.print(tempSensorNr + 1);
+            Log.println(": Temperature is too high, compressor is disabled. Please check compressor!");
           }
         }
       } else {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <DallasTemperature.h> // install DallasTemperature by Miles Burton
+
 #define MAX_TEMP_SENSORS (2) // maximum number of sensors used
 
 extern float temperature[MAX_TEMP_SENSORS];
@@ -10,6 +12,7 @@ class TemperatureSensor {
 
 private:
     int tempSensorNr;
+	DeviceAddress tempDeviceAddress;
 	bool tempSensorAvailable = false;
 	float currentTemperature;
 	float theTempIsHighLevel;

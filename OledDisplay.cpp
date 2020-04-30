@@ -226,14 +226,16 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
             sprintf(outputStr, "Temp1:%7.2f %cC", temperature1, 176);
           }
           u8x8.drawString(0, 5, outputStr);
-          if ((previousTempIsHigh1 != tempIsHigh1) || (previousErrorTempIsTooHigh1 != ErrorTempIsTooHigh1)) {
+          if ((previousTempIsHigh1 != tempIsHigh1) || (previousErrorTempIsTooHigh1 != ErrorTempIsTooHigh1) || nextTimeDisplay) {
             if (ErrorTempIsTooHigh1) {
               showStatus(ERRORHIGHTEMP1);
             } else {
               if (tempIsHigh1) {
                 showStatus(WARNINGHIGHTEMP1);
               } else {
-                showStatus(NOSTATUS);
+                if (!tempIsHigh2) {
+                  showStatus(NOSTATUS);
+                }
               }
             }
             previousErrorTempIsTooHigh1 = ErrorTempIsTooHigh1;  
@@ -250,14 +252,16 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
             sprintf(outputStr, "Temp2:%7.2f %cC", temperature2, 176);
           }
           u8x8.drawString(0, 6, outputStr);
-          if ((previousTempIsHigh2 != tempIsHigh1) || (previousErrorTempIsTooHigh2 != ErrorTempIsTooHigh2)) {
+          if ((previousTempIsHigh2 != tempIsHigh2) || (previousErrorTempIsTooHigh2 != ErrorTempIsTooHigh2) || nextTimeDisplay) {
             if (ErrorTempIsTooHigh2) {
               showStatus(ERRORHIGHTEMP2);
             } else {
               if (tempIsHigh2) {
                 showStatus(WARNINGHIGHTEMP2);
               } else {
-                showStatus(NOSTATUS);
+                if (!tempIsHigh1) {
+                  showStatus(NOSTATUS);
+                }
               }
             }
             previousErrorTempIsTooHigh2 = ErrorTempIsTooHigh2;  
@@ -340,13 +344,17 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
       }
 
       if (showStatusTemporarily && (millis() > clearStatusLineTime)) {
-        if (tempIsHigh1) {
+        if (tempIsHigh1 || tempIsHigh2)  {
           showStatus(WARNINGHIGHTEMP1);
         } else {
           if (ErrorTempIsTooHigh1) {
             showStatus(ERRORHIGHTEMP1);
           } else {
-            showStatus(NOSTATUS);
+            if (ErrorTempIsTooHigh2) {
+              showStatus(ERRORHIGHTEMP2);
+            } else {
+              showStatus(NOSTATUS);
+            }
           }
         }
         showStatusTemporarily = false;
@@ -354,75 +362,80 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
 
     break;
     case ERRORDISPLAY:
-      if (nextTimeDisplay) {
-        u8x8.setFont(u8x8_font_px437wyse700a_2x2_r);
-        u8x8.drawString(0, 0, "MAINTAIN");
-        u8x8.drawString(0, 2, "COMPRSR.");
-        u8x8.setFont(u8x8_font_px437wyse700a_2x2_r);
-        u8x8.drawString(0, 12, "COMPRSR.");  
-        u8x8.drawString(0, 14, "DISABLED");
-      }
+      if (millis() > updateDisplayTime)
+      {
+        updateDisplayTime = millis() + DISPLAY_WINDOW;
+        if (nextTimeDisplay) {
+          u8x8.setFont(u8x8_font_px437wyse700a_2x2_r);
+          u8x8.drawString(0, 0, "MAINTAIN");
+          u8x8.drawString(0, 2, "COMPRSR.");
+          u8x8.setFont(u8x8_font_px437wyse700a_2x2_r);
+          u8x8.drawString(0, 12, "COMPRSR.");  
+          u8x8.drawString(0, 14, "DISABLED");
+        }
 
-      if ((previousErrorTempIsTooHigh1 != ErrorTempIsTooHigh1) || (previousErrorTempIsTooHigh2 != ErrorTempIsTooHigh2) || nextTimeDisplay) {
-        if ((ErrorTempIsTooHigh1) || (ErrorTempIsTooHigh2)) {
-          u8x8.setFont(u8x8_font_chroma48medium8_r);
-          if (!ErrorTempIsTooHigh2) {
-            u8x8.drawString(0, 8, "TEMPERATURE 1   ");
-            u8x8.drawString(0, 9, "IS TOO HIGH     ");
-          } else {
+        if ((previousErrorTempIsTooHigh1 != ErrorTempIsTooHigh1) || (previousErrorTempIsTooHigh2 != ErrorTempIsTooHigh2) || nextTimeDisplay) {
+          previousErrorTempIsTooHigh1 = ErrorTempIsTooHigh1;
+          previousErrorTempIsTooHigh2 = ErrorTempIsTooHigh2;
+          if ((ErrorTempIsTooHigh1) || (ErrorTempIsTooHigh2)) {
+            u8x8.setFont(u8x8_font_chroma48medium8_r);
             if (!ErrorTempIsTooHigh2) {
-              u8x8.drawString(0, 8, "TEMPERATURE 2   ");
+              u8x8.drawString(0, 8, "TEMPERATURE 1   ");
               u8x8.drawString(0, 9, "IS TOO HIGH     ");
             } else {
-              u8x8.drawString(0, 8, "TEMPERATURE 1+2 ");
-              u8x8.drawString(0, 9, "ARE TOO HIGH    ");
+              if (!ErrorTempIsTooHigh1) {
+                u8x8.drawString(0, 8, "TEMPERATURE 2   ");
+                u8x8.drawString(0, 9, "IS TOO HIGH     ");
+              } else {
+                u8x8.drawString(0, 8, "TEMPERATURE 1+2 ");
+                u8x8.drawString(0, 9, "ARE TOO HIGH    ");
+              }
             }
+          } else {
+            u8x8.setFont(u8x8_font_chroma48medium8_r);
+            u8x8.drawString(0, 8, "                ");
+            u8x8.drawString(0, 9, "                ");
+          }
+        }
+
+        if (ErrorTempIsTooHigh1) {
+          if ((temperature1 != lastTempDisplayed1) || nextTimeDisplay) {
+            lastTempDisplayed1 = temperature1;
+            u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
+            sprintf(outputStr, "Temp1:%7.2f %cC", temperature1, 176);
+            u8x8.drawString(0, 10, outputStr);
           }
         } else {
-          u8x8.setFont(u8x8_font_chroma48medium8_r);
-          u8x8.drawString(0, 8, "                ");
-          u8x8.drawString(0, 9, "                ");
-        }
-      }
-
-      if (ErrorTempIsTooHigh1) {
-        if ((temperature1 != lastTempDisplayed1) || nextTimeDisplay) {
-          lastTempDisplayed1 = temperature1;
           u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          sprintf(outputStr, "Temp.:%7.2f %cC", temperature1, 176);
-          u8x8.drawString(0, 10, outputStr);
+          u8x8.drawString(0, 10, "                ");
         }
-      } else {
-        u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-        u8x8.drawString(0, 10, "                ");
-      }
 
-      if (ErrorTempIsTooHigh2) {
-        if ((temperature2 != lastTempDisplayed2) || nextTimeDisplay) {
-          lastTempDisplayed2 = temperature2;
-          u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          sprintf(outputStr, "Temp.:%7.2f %cC", temperature2, 176);
-          u8x8.drawString(0, 11, outputStr);
-        }
-      } else {
-        u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-        u8x8.drawString(0, 11, "                ");
-      }
-
-      if ((ErrorOilLevelIsTooLow != previousErrorOilLevelIsTooLow) || nextTimeDisplay) {
-        previousErrorOilLevelIsTooLow = ErrorOilLevelIsTooLow;
-        if (ErrorOilLevelIsTooLow) {
-          u8x8.setFont(u8x8_font_chroma48medium8_r);
-          u8x8.drawString(0, 5, "OIL LEVEL       ");
-          u8x8.drawString(0, 6, "IS TOO LOW      ");
+        if (ErrorTempIsTooHigh2) {
+          if ((temperature2 != lastTempDisplayed2) || nextTimeDisplay) {
+            lastTempDisplayed2 = temperature2;
+            u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
+            sprintf(outputStr, "Temp2:%7.2f %cC", temperature2, 176);
+            u8x8.drawString(0, 11, outputStr);
+          }
         } else {
-          u8x8.setFont(u8x8_font_chroma48medium8_r);
-          u8x8.drawString(0, 5, "                ");
-          u8x8.drawString(0, 6, "                ");
+          u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
+          u8x8.drawString(0, 11, "                ");
         }
-      }
 
-      nextTimeDisplay = false;
+        if ((ErrorOilLevelIsTooLow != previousErrorOilLevelIsTooLow) || nextTimeDisplay) {
+          previousErrorOilLevelIsTooLow = ErrorOilLevelIsTooLow;
+          if (ErrorOilLevelIsTooLow) {
+            u8x8.setFont(u8x8_font_chroma48medium8_r);
+            u8x8.drawString(0, 5, "OIL LEVEL       ");
+            u8x8.drawString(0, 6, "IS TOO LOW      ");
+          } else {
+            u8x8.setFont(u8x8_font_chroma48medium8_r);
+            u8x8.drawString(0, 5, "                ");
+            u8x8.drawString(0, 6, "                ");
+          }
+        }
+        nextTimeDisplay = false;
+      }
     break;
   }
 }
