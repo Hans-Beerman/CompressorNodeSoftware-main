@@ -26,8 +26,8 @@ This software is developed with Visual Studio Code in combination with the exten
   - Oil level too low;
   - Temperature to high;
 - _Measurement of the machine temperature_: the temperature of the compressor is measured and reported via MQTT. The temperature is also shown on the display of the node. There are 2 temperature sensors, one is measuring the temperture of the motor, the other measures the temperature of the compressor;
-- _Measurement of the oil level_: The oil level of the compressor is is measured and reported via MQTT. This pressure is also shown on the display of the node;
-- _Measurement of air pressure_: The air pressure, as produced by the compressor is measured and reported via MWTT. This pressure is also shown on the display of the node;
+- _Measurement of the oil level_: The oil level of the compressor is measured and reported via MQTT. This pressure is also shown on the display of the node;
+- _Measurement of air pressure_: The air pressure, as produced by the compressor is measured and reported via MQTT. This pressure is also shown on the display of the node;
 - _Status show on display_: There is a small Oled display (128x128 pixels) which shows status information about the node and the compressor.
 
 **Setup of the software development environment**
@@ -49,7 +49,7 @@ This library is used to collect the correct local time via NTP;
 
 **Configuratie PlatformIO**
 
-The configuration for this Project in PlatformIO is stored in the platformio.ini file, the content of this file is file is shown next, the IP address (10.0.0.127) shown in this config will be different, dependent of the network to which the node is connected:
+The configuration for this Project in PlatformIO is stored in the platformio.ini file, the content of this file is file is shown next, the IP address (10.0.0.127) is an example, please change this to the correct IP address, given by the network to which the node is connected:
 
 _;PlatformIO Project Configuration File_
 
@@ -111,9 +111,9 @@ In main.cpp:
 
 #define TEMP\_IS\_HIGH\_LEVEL\_1 (40.0) // in degrees Celcius, used for temperature is high warning of sensor 1
 
-#define TEMP_IS\_TOO\_HIGH\_LEVEL\_1 (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
+#define TEMP_IS\_TOO\_HIGH\_LEVEL\_1 (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 1
 
-#define TEMP_IS\_HIGH\_LEVEL\_2 (40.0) // in degrees Celcius, used for temperature is high warning of sensor 1
+#define TEMP_IS\_HIGH\_LEVEL\_2 (40.0) // in degrees Celcius, used for temperature is high warning of sensor 2
 
 #define TEMP_IS\_TOO\_HIGH\_LEVEL\_2 (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
 
