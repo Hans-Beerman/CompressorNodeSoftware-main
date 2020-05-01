@@ -1,6 +1,6 @@
 **Source code CompressorNode Makerspace Leiden**
 
-Current version: V0.3 Concept
+Current version: V0.5 Concept
 
 This repository contains the source code for the CompressorNode used in the Makerspace Leiden.
 
@@ -17,15 +17,15 @@ This software is developed with Visual Studio Code in combination with the exten
 - _but1_: to toggle info / calibration mode on or off. but1 is the second button of the ESP32-PoE module. Press this button, when the node is running (the boot screen is not shown anymore). When info calibration mode is active each second e.g. the IP address and calibration info is logged to MQTT and telnet etc.
 - _Automatic switch on_: switch the compressor on by means of dedicated MQTT messages
 - _Automatic switch off_: switch the compressor off by means of dedicated MQTT mesages
-- _Timeout_: the compressor will automatically switch off after a certain (in source code) configured timeout, currently after 30 minutes. Pressing Button On again, while the compressor is switched on, will extend the timeout with the same amount;
+- _Timeout_: the compressor will automatically switch off after a certain (in source code) configured timeout, currently after 30 minutes. Pressing Button On again (or sending MQTT command), while the compressor is switched on, will extend the timeout with 30 minutes;
 - _Late hour disable_: after a configured time in the evening (currently 19:00 h) and before a configured time in the morning (currently 08:00 h) the compressor is disabled to prevent too much noise for our neighbors. This means the compressor will not start automatically by means of MQTT messages. Also the compressor will not start if the Button On is pressed normally;
 - _Overrule late hour disable_: the late hour disable function can be overruled by pressing the Button On continuously for more than 10 seconds;
 - _230VAC relais output:_ to switch the compressor on or off;
 - _230VAC opto coupler input:_ This input is connected to one of the phases of the 3-phase motor of the compressor to detect if the motor is running or not;
-- _2 LED&#39;s_: for signaling purposes. LED1 is on continuously if the compressor is switched on. LED2 is on continuously if the motor in the compressor is switched on. LED1 will flash for 5 s with 200 ms intervals if Button On is pressed during late hour disable. Both LED&#39;s will flash simultaneously with 600 ms intervals if there is an error which make it impossible to operate the compressor. The LED&#39;s will flash until the error is solved. The following two errors will disable de compressor:
+- _2 LED&#39;s_: for signaling purposes. LED1 is on continuously when the compressor is switched on. LED2 is on continuously when the motor in the compressor is switched on. LED1 will flash for 5 s with 200 ms intervals if Button On is pressed during late hour disable. Both LED&#39;s will flash simultaneously with 600 ms intervals if there is an error which make it impossible to operate the compressor. The LED&#39;s will flash until the error is solved. The following two errors will disable de compressor:
   - Oil level too low;
   - Temperature to high;
-- _Measurement of the machine temperature_: the temperature of the compressor is measured and reported via MQTT. The temperature is also shown on the display of the node;
+- _Measurement of the machine temperature_: the temperature of the compressor is measured and reported via MQTT. The temperature is also shown on the display of the node. There are 2 temperature sensors, one is measuring the temperture of the motor, the other measures the temperature of the compressor;
 - _Measurement of the oil level_: The oil level of the compressor is is measured and reported via MQTT. This pressure is also shown on the display of the node;
 - _Measurement of air pressure_: The air pressure, as produced by the compressor is measured and reported via MWTT. This pressure is also shown on the display of the node;
 - _Status show on display_: There is a small Oled display (128x128 pixels) which shows status information about the node and the compressor.
@@ -42,7 +42,7 @@ For more information about this library see:
 
 [https://platformio.org/lib/show/5438/NTP](https://platformio.org/lib/show/5438/NTP)
 
-This library is used to collect via NTP the correct local time;
+This library is used to collect the correct local time via NTP;
 
 - _DallasTemperature_: DallasTemperature by Miles Burton (#include <DallasTemperature.h>), current version 3.6.1, this library is used for the one wire temperature sensor based on the DS18B20;
 - _U8x8lib_: U8g2 library by oliver (#include <U8x8lib.h>), current version 2.28.2, this library is used for the 128x128 pixels Oled display used.
@@ -109,9 +109,13 @@ In main.cpp:
 
 // temperature sensor
 
-#define TEMP\_IS\_HIGH\_LEVEL (40.0) // in degrees Celcius, used for temperature is high warning
+#define TEMP\_IS\_HIGH\_LEVEL\_1 (40.0) // in degrees Celcius, used for temperature is high warning of sensor 1
 
-#define TEMP\_IS\_TOO\_HIGH\_LEVEL (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high
+#define TEMP_IS\_TOO\_HIGH\_LEVEL\_1 (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
+
+#define TEMP_IS\_HIGH\_LEVEL\_2 (40.0) // in degrees Celcius, used for temperature is high warning of sensor 1
+
+#define TEMP_IS\_TOO\_HIGH\_LEVEL\_2 (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
 
 - _The time interval of the LED&#39;s in case of an error:_
 
@@ -169,7 +173,7 @@ In main.cpp:
 
 #define LED\_DISABLE\_PERIOD (200) // in ms, the time LED1 will flash on/off
 
-- _Clear EEProm and cache, by pressing but1 of the ESP32-PoE module during boot some time:_
+- _Clear EEProm and cache, by pressing but1 of the ESP32-PoE module during boot for some time:_
 
 In main.cpp:
 
