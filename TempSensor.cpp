@@ -24,12 +24,14 @@ int currentTempSensor = 0;
 float temperature[MAX_TEMP_SENSORS];
 bool tempIsHigh[MAX_TEMP_SENSORS];
 bool ErrorTempIsTooHigh[MAX_TEMP_SENSORS];
+char labelTempSensor[20] [MAX_TEMP_SENSORS];
 
-TemperatureSensor::TemperatureSensor(float tempIsHighLevel, float tempIsTooHighLevel) {
+TemperatureSensor::TemperatureSensor(float tempIsHighLevel, float tempIsTooHighLevel, const char *tempLabel) {
   tempSensorNr = currentTempSensor++;
 	theTempIsHighLevel = tempIsHighLevel;
 	theTempIsTooHighLevel = tempIsTooHighLevel;
   conversionTime = MAX_TEMP_CONVERSIONTIME / (1 << (12 - TEMP_RESOLUTION));
+  sprintf(labelTempSensor[tempSensorNr], "%s", tempLabel);
 }
 
 void TemperatureSensor::begin() {
@@ -43,7 +45,9 @@ void TemperatureSensor::begin() {
 
     Log.print("Temperature sensor ");
     Log.print(tempSensorNr + 1);
-    Log.println(": not detected at init node!");
+    Log.print(" (");
+    Log.print(labelTempSensor[tempSensorNr]);
+    Log.println("): sensor not detected at init of node!");
     return;
   }
   sensorTemp.setResolution(tempDeviceAddress, TEMP_RESOLUTION);
@@ -68,7 +72,9 @@ void TemperatureSensor::loop() {
       } else {
         Log.print("Temperature sensor ");
         Log.print(tempSensorNr + 1);
-        Log.println(" does not react, perhaps not available?");
+        Log.print(" (");
+        Log.print(labelTempSensor[tempSensorNr]);
+        Log.println("): sensor does not react, perhaps not available?");
       }
     } else {
       if (currentTemperature != previousTemperature) {
@@ -88,9 +94,11 @@ void TemperatureSensor::loop() {
     tempAvailableTime = millis() + conversionTime;
     if (temperature[tempSensorNr] <= theTempIsHighLevel) {
       if (tempIsHigh[tempSensorNr]) {
-        Log.print("Temperature sensor");
+        Log.print("Temperature sensor ");
         Log.print(tempSensorNr + 1);
-        Log.println(" is OK now (below warning threshold)");
+        Log.print(" (");
+        Log.print(labelTempSensor[tempSensorNr]);
+        Log.println("): temperature is OK now (below warning threshold)");
       }
       tempIsHigh[tempSensorNr] = false;
       if (ErrorTempIsTooHigh[tempSensorNr])
@@ -103,7 +111,9 @@ void TemperatureSensor::loop() {
       if (!tempIsHigh[tempSensorNr]) {
         Log.print("WARNING: temperature sensor ");
         Log.print(tempSensorNr + 1);
-        Log.println(" is above warning level. Please check compressor");
+        Log.print(" (");
+        Log.print(labelTempSensor[tempSensorNr]);
+        Log.println("): temperature is above warning level. Please check the compressor");
       }
       tempIsHigh[tempSensorNr] = true;
       if ((temperature[tempSensorNr] > theTempIsTooHighLevel) && !ErrorTempIsTooHigh[tempSensorNr]) {
@@ -115,7 +125,9 @@ void TemperatureSensor::loop() {
             ErrorTempIsTooHigh[tempSensorNr] = true;
             Log.print("ERROR, sensor ");
             Log.print(tempSensorNr + 1);
-            Log.println(": Temperature is too high, compressor is disabled. Please check compressor!");
+            Log.print(" (");
+            Log.print(labelTempSensor[tempSensorNr]);
+            Log.println("): Temperature is too high, compressor is disabled. Please check the compressor!");
           }
         }
       } else {
@@ -125,7 +137,9 @@ void TemperatureSensor::loop() {
           nextTimeDisplay = true;
           Log.print("WARNING, sensor ");
           Log.print(tempSensorNr + 1);
-          Log.println(": Temperature is below error level now, but still above warning level. Please check compressor!");
+          Log.print(" (");
+          Log.print(labelTempSensor[tempSensorNr]);
+          Log.println("): Temperature is below error level now, but still above warning level. Please check the compressor!");
         }
       }
     }

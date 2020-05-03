@@ -77,10 +77,12 @@ ButtonDebounce buttonInfoCalibration(INFO_CALIBRATION_BUTTON, 150 /* mSeconds */
 OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to detect if the motor has power (or not)
 
 // temperature sensors
-#define TEMP_IS_HIGH_LEVEL_1 (40.0) // in degrees Celcius, used for temperature is high warning of sensor 1
-#define TEMP_IS_TOO_HIGH_LEVEL_1 (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 1
-#define TEMP_IS_HIGH_LEVEL_2 (40.0) // in degrees Celcius, used for temperature is high warning of sensor 2
-#define TEMP_IS_TOO_HIGH_LEVEL_2 (70.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
+#define TEMP_SENSOR_LABEL1 ("Compressor")
+#define TEMP_SENSOR_LABEL2 ("Motor")
+#define TEMP_IS_HIGH_LEVEL_1 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 1
+#define TEMP_IS_TOO_HIGH_LEVEL_1 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 1
+#define TEMP_IS_HIGH_LEVEL_2 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 2
+#define TEMP_IS_TOO_HIGH_LEVEL_2 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
 
 // For LED's showing node error
 #define BLINKING_LED_PERIOD (600) // in ms
@@ -103,7 +105,7 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 // unless the button on is pressed again or a new auto on command is received while the compressor is
 // already switched on. In both cases the time will be extended by AUTOTIMEOUT ms.
 #define DISABLE_COMPRESSOR_AT_LATE_HOURS      (true)
-#define DISABLED_TIME_START                   (19) // in hour, time from which the compressor is not automatically switched on
+#define DISABLED_TIME_START                   (22) // in hour, time from which the compressor is not automatically switched on
 #define DISABLED_TIME_END                     (8) // in hour, time to which the compressor is not automatically switched on
 #define MAX_WAIT_TIME_BUTTON_ON_PRESSED       (10000)  // in ms, time button on must be pressed to override late hour compressor disable
 #define LED_DISABLE_DURATION                  (5000)  // in ms, the time LED1 will flash if button on is pressed during late hour
@@ -160,9 +162,12 @@ unsigned long running_total = 0, running_last;
 float powered = 0.0;
 float running = 0.0;
 
+unsigned long lastSavedPoweredCounter = 0;
+unsigned long lastSavedRunningCounter = 0;
+
 // temperature sensors
-TemperatureSensor theTempSensor1(TEMP_IS_HIGH_LEVEL_1, TEMP_IS_TOO_HIGH_LEVEL_1);
-TemperatureSensor theTempSensor2(TEMP_IS_HIGH_LEVEL_2, TEMP_IS_TOO_HIGH_LEVEL_2);
+TemperatureSensor theTempSensor1(TEMP_IS_HIGH_LEVEL_1, TEMP_IS_TOO_HIGH_LEVEL_1, TEMP_SENSOR_LABEL1);
+TemperatureSensor theTempSensor2(TEMP_IS_HIGH_LEVEL_2, TEMP_IS_TOO_HIGH_LEVEL_2, TEMP_SENSOR_LABEL2);
 
 // OledDisplay
 OledDisplay theOledDisplay;
@@ -269,48 +274,52 @@ void checkClearEEPromAndCacheButtonPressed(void) {
 }
 
 void saveDurationCounters() {
-  unsigned long tmpCounter;
+  unsigned long tmpCounter1;
+  unsigned long tmpCounter2;
 
-  String path = DURATION_DIR_PREFIX + (String)DURATION_FILE_PREFIX;
-  File durationFile;
-  unsigned int writeSize;
-  durationFile = SPIFFS.open(path, "wb");
-  if(!durationFile) {
-    Log.print("There was an error opening the ");
-    Log.print(DURATION_DIR_PREFIX);
-    Log.print(DURATION_FILE_PREFIX);
-    Log.println(" file for writing");
-    return;
-  }
   if (machinestate >= POWERED) {
-    tmpCounter = powered_total + (millis() - powered_last) / 1000;
+    tmpCounter1 = powered_total + (millis() - powered_last) / 1000;
   } else {
-    tmpCounter = powered_total;
-  }
-  writeSize = durationFile.write((byte*)&tmpCounter, sizeof(tmpCounter));
-  if (writeSize != sizeof(tmpCounter)) {
-    Log.print("ERROR --> powered_total: ");
-    Log.print(tmpCounter);
-    Log.println(" NOT stored in SPIFFS");
-    durationFile.close();
-    return;
+    tmpCounter1 = powered_total;
   }
 
   if (machinestate == RUNNING) {
-    tmpCounter = running_total + (millis() - running_last) / 1000;
+    tmpCounter2 = running_total + (millis() - running_last) / 1000;
   } else {
-    tmpCounter = running_total;
-  }
-  writeSize = durationFile.write((byte*)&tmpCounter, sizeof(tmpCounter));
-  if (writeSize != sizeof(tmpCounter)) {
-    Log.print("ERROR --> running_total: ");
-    Log.print(tmpCounter);
-    Log.println(" NOT stored in SPIFFS");
-    durationFile.close();
-    return;
+    tmpCounter2 = running_total;
   }
 
-  durationFile.close();
+  if ((tmpCounter1 != lastSavedPoweredCounter) || (tmpCounter2 != lastSavedRunningCounter)) {
+    String path = DURATION_DIR_PREFIX + (String)DURATION_FILE_PREFIX;
+    File durationFile;
+    unsigned int writeSize;
+    durationFile = SPIFFS.open(path, "wb");
+    if(!durationFile) {
+      Log.print("There was an error opening the ");
+      Log.print(DURATION_DIR_PREFIX);
+      Log.print(DURATION_FILE_PREFIX);
+      Log.println(" file for writing");
+      return;
+    }
+    writeSize = durationFile.write((byte*)&tmpCounter1, sizeof(tmpCounter1));
+    if (writeSize != sizeof(tmpCounter1)) {
+      Log.print("ERROR --> powered_total: ");
+      Log.print(tmpCounter1);
+      Log.println(" NOT stored in SPIFFS");
+      durationFile.close();
+      return;
+    }
+
+    writeSize = durationFile.write((byte*)&tmpCounter2, sizeof(tmpCounter2));
+    if (writeSize != sizeof(tmpCounter2)) {
+      Log.print("ERROR --> running_total: ");
+      Log.print(tmpCounter2);
+      Log.println(" NOT stored in SPIFFS");
+      durationFile.close();
+      return;
+    }
+    durationFile.close();
+  }
 }
 
 void loadDurationCounters() {
@@ -497,6 +506,7 @@ void setup() {
     if (state == BUTTON_INFO_CALIBRATION_PRESSED) {
       showInfoAndCalibration = !showInfoAndCalibration;
     }
+    saveDurationCounters();
   });
 
   theOilLevelSensor.begin();
@@ -559,14 +569,14 @@ void setup() {
     report["running_time"] = reportStr;
 
     if (temperature[0] == -127) {
-      sprintf(reportStr, "Error reading temperature sensor 1, perhaps not connected?");
+      sprintf(reportStr, "Error reading temperature sensor 1 (%s), perhaps not connected?", TEMP_SENSOR_LABEL1);
     } else {
       if (ErrorTempIsTooHigh[0]) {
-        sprintf(reportStr, "ERROR: Temperature sensor 1 is too high, compressor is disabled!");
+        sprintf(reportStr, "ERROR: Temperature sensor 1 (%s) is too high, compressor is disabled!", TEMP_SENSOR_LABEL1);
         report["temperature_sensor_1_error"] = reportStr;
       } else {
         if (tempIsHigh[0]) {
-          sprintf(reportStr, "WARNING: Temperature sensor 1 is very high!");
+          sprintf(reportStr, "WARNING: Temperature sensor 1 (%s) is very high!", TEMP_SENSOR_LABEL1);
           report["temperature_sensor_1_warning"] = reportStr;
         }
       }
@@ -575,14 +585,14 @@ void setup() {
     report["temperature_sensor_1"] = reportStr;
 
     if (temperature[1] == -127) {
-      sprintf(reportStr, "Error reading temperature sensor 2, perhaps not connected?");
+      sprintf(reportStr, "Error reading temperature sensor 2 (%s), perhaps not connected?", TEMP_SENSOR_LABEL2);
     } else {
       if (ErrorTempIsTooHigh[1]) {
-        sprintf(reportStr, "ERROR: Temperature sensor 2 is too high, compressor is disabled!");
+        sprintf(reportStr, "ERROR: Temperature sensor 2 (%s) is too high, compressor is disabled!", TEMP_SENSOR_LABEL2);
         report["temperature_sensor_2_error"] = reportStr;
       } else {
         if (tempIsHigh[1]) {
-          sprintf(reportStr, "WARNING: Temperature sensor 2 is very high!");
+          sprintf(reportStr, "WARNING: Temperature sensor 2 (%s) is very high!", TEMP_SENSOR_LABEL2);
           report["temperature_sensor_2_warning"] = reportStr;
         }
       }
@@ -755,7 +765,7 @@ void compressorLoop() {
   // save duration counters in EEProm every SAVE_DURATION_COUNTERS_WINDOW number of seconds
   if ((millis() / 1000) > DurationCounterSave) {
     DurationCounterSave = millis() / 1000 + SAVE_DURATION_COUNTERS_WINDOW;
-    
+
     Log.print("powered_total = ");
     Log.println(powered_total);
     Log.print("running_total = ");

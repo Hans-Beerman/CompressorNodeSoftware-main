@@ -3,7 +3,7 @@
 #include <MachState.h>
 
 // software version
-#define SOFTWARE_VERSION "  V0.5  "
+#define SOFTWARE_VERSION "  V0.6  "
 
 typedef enum {
   NOSTATUS,

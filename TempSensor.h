@@ -24,7 +24,7 @@ private:
 	int tryCount;
 
 public:
-  TemperatureSensor(float tempIsHighLevel, float tempIsTooHighLevel);
+  TemperatureSensor(float tempIsHighLevel, float tempIsTooHighLevel, const char *tempLabel);
 
   void begin();
   
