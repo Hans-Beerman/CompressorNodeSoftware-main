@@ -79,6 +79,12 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 // temperature sensors
 #define TEMP_SENSOR_LABEL1 ("Compressor")
 #define TEMP_SENSOR_LABEL2 ("Motor")
+#define TEMP_REPORT_ERROR1 ("temperature_sensor_1_(compressor)_error")
+#define TEMP_REPORT_WARNING1 ("temperature_sensor_1_(compressor)_warning")
+#define TEMP_REPORT1 ("temperature_sensor_1_(compressor)")
+#define TEMP_REPORT_ERROR2 ("temperature_sensor_1_(motor)_error")
+#define TEMP_REPORT_WARNING2 ("temperature_sensor_1_(motor)_warning")
+#define TEMP_REPORT2 ("temperature_sensor_2_(motor)")
 #define TEMP_IS_HIGH_LEVEL_1 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 1
 #define TEMP_IS_TOO_HIGH_LEVEL_1 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 1
 #define TEMP_IS_HIGH_LEVEL_2 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 2
@@ -105,8 +111,8 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 // unless the button on is pressed again or a new auto on command is received while the compressor is
 // already switched on. In both cases the time will be extended by AUTOTIMEOUT ms.
 #define DISABLE_COMPRESSOR_AT_LATE_HOURS      (true)
-#define DISABLED_TIME_START                   (22) // in hour, time from which the compressor is not automatically switched on
-#define DISABLED_TIME_END                     (8) // in hour, time to which the compressor is not automatically switched on
+#define DISABLED_TIME_START                   (19) // in hour, time from which the compressor is not automatically switched on
+#define DISABLED_TIME_END                     (7) // in hour, time to which the compressor is not automatically switched on
 #define MAX_WAIT_TIME_BUTTON_ON_PRESSED       (10000)  // in ms, time button on must be pressed to override late hour compressor disable
 #define LED_DISABLE_DURATION                  (5000)  // in ms, the time LED1 will flash if button on is pressed during late hour
 #define LED_DISABLE_PERIOD                    (200)  // in ms, the time LED1 will flash on/off
@@ -198,6 +204,7 @@ unsigned long nextLedDisableTime = 0;
 bool showLedDisable = false;
 bool disableLedIsOn = false;
 
+bool OptoDetectsPower = false;
 unsigned long autoPowerOff;
 bool compressorIsOn = false;
 
@@ -437,15 +444,17 @@ void setup() {
   opto1.onOptoChange([](OptoDebounce::state_t state) {
 
     if (state) {
-      if (machinestate == POWERED) {
-        machinestate = RUNNING;
-        digitalWrite(LED2, 1);
-      }
+      OptoDetectsPower = true;
+//      if (machinestate == POWERED) {
+//        machinestate = RUNNING;
+//        digitalWrite(LED2, 1);
+//      }
     } else {
-      if (machinestate > POWERED) {
-        machinestate = POWERED;
-        digitalWrite(LED2, 0);
-      }
+      OptoDetectsPower = false;
+//      if (machinestate > POWERED) {
+//        machinestate = POWERED;
+//        digitalWrite(LED2, 0);
+//      }
     }
   });
 
@@ -458,9 +467,14 @@ void setup() {
         Log.printf("Compressor switched on with button\n");
         digitalWrite(RELAY_GPIO, 1);
         digitalWrite(LED1, 1);
-        digitalWrite(LED2, 0);
+        if (OptoDetectsPower) {
+          digitalWrite(LED2, 1);
+          machinestate = RUNNING;
+        } else {
+          digitalWrite(LED2, 0);
+          machinestate = POWERED;
+        }
         compressorIsOn = true;
-        machinestate = POWERED;
         autoPowerOff = millis() + AUTOTIMEOUT;
         isManualSwitchedOn = true;
         verifyButtonOnIsStillPressed = false;
@@ -573,32 +587,32 @@ void setup() {
     } else {
       if (ErrorTempIsTooHigh[0]) {
         sprintf(reportStr, "ERROR: Temperature sensor 1 (%s) is too high, compressor is disabled!", TEMP_SENSOR_LABEL1);
-        report["temperature_sensor_1_error"] = reportStr;
+        report[TEMP_REPORT_ERROR1] = reportStr;
       } else {
         if (tempIsHigh[0]) {
           sprintf(reportStr, "WARNING: Temperature sensor 1 (%s) is very high!", TEMP_SENSOR_LABEL1);
-          report["temperature_sensor_1_warning"] = reportStr;
+          report[TEMP_REPORT_WARNING1] = reportStr;
         }
       }
       sprintf(reportStr, "%f degrees Celcius", temperature[0]);
     }
-    report["temperature_sensor_1"] = reportStr;
+    report[TEMP_REPORT1] = reportStr;
 
     if (temperature[1] == -127) {
       sprintf(reportStr, "Error reading temperature sensor 2 (%s), perhaps not connected?", TEMP_SENSOR_LABEL2);
     } else {
       if (ErrorTempIsTooHigh[1]) {
         sprintf(reportStr, "ERROR: Temperature sensor 2 (%s) is too high, compressor is disabled!", TEMP_SENSOR_LABEL2);
-        report["temperature_sensor_2_error"] = reportStr;
+        report[TEMP_REPORT_ERROR1] = reportStr;
       } else {
         if (tempIsHigh[1]) {
           sprintf(reportStr, "WARNING: Temperature sensor 2 (%s) is very high!", TEMP_SENSOR_LABEL2);
-          report["temperature_sensor_2_warning"] = reportStr;
+          report[TEMP_REPORT_WARNING2] = reportStr;
         }
       }
       sprintf(reportStr, "%f degrees Celcius", temperature[1]);
     }
-    report["temperature_sensor_2"] = reportStr;
+    report[TEMP_REPORT2] = reportStr;
 
 
     if (!oilLevelIsTooLow)
@@ -658,6 +672,18 @@ void setup() {
 void buttons_optocoupler_loop() {
 
   opto1.loop();
+
+  if (OptoDetectsPower) {
+    if (machinestate == POWERED) {
+      digitalWrite(LED2, 1);
+      machinestate = RUNNING;
+    } else {
+      if (machinestate == running) {
+        digitalWrite(LED2, 0);
+        machinestate = POWERED;        
+      }
+    }
+  }
 
   buttonOn.update();
   buttonOff.update();

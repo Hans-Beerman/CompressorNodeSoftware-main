@@ -24,7 +24,7 @@ int currentTempSensor = 0;
 float temperature[MAX_TEMP_SENSORS];
 bool tempIsHigh[MAX_TEMP_SENSORS];
 bool ErrorTempIsTooHigh[MAX_TEMP_SENSORS];
-char labelTempSensor[20] [MAX_TEMP_SENSORS];
+char labelTempSensor[MAX_TEMP_SENSORS] [20];
 
 TemperatureSensor::TemperatureSensor(float tempIsHighLevel, float tempIsTooHighLevel, const char *tempLabel) {
   tempSensorNr = currentTempSensor++;
