@@ -61,7 +61,7 @@ NTP ntp(wifiUDP);
 #define OTA_PASSWD "MyPassWoord"
 
 // for test
-#define MACHINE "test-compressor1"
+#define MACHINE "test-compressor2"
 // define MACHINE "compressor"
 
 // button on and button off
@@ -77,18 +77,21 @@ ButtonDebounce buttonInfoCalibration(INFO_CALIBRATION_BUTTON, 150 /* mSeconds */
 OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to detect if the motor has power (or not)
 
 // temperature sensors
-#define TEMP_SENSOR_LABEL1 ("Compressor")
-#define TEMP_SENSOR_LABEL2 ("Motor")
-#define TEMP_REPORT_ERROR1 ("temperature_sensor_1_(compressor)_error")
-#define TEMP_REPORT_WARNING1 ("temperature_sensor_1_(compressor)_warning")
-#define TEMP_REPORT1 ("temperature_sensor_1_(compressor)")
-#define TEMP_REPORT_ERROR2 ("temperature_sensor_1_(motor)_error")
-#define TEMP_REPORT_WARNING2 ("temperature_sensor_1_(motor)_warning")
-#define TEMP_REPORT2 ("temperature_sensor_2_(motor)")
-#define TEMP_IS_HIGH_LEVEL_1 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 1
-#define TEMP_IS_TOO_HIGH_LEVEL_1 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 1
-#define TEMP_IS_HIGH_LEVEL_2 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 2
-#define TEMP_IS_TOO_HIGH_LEVEL_2 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
+#define TEMP_SENSOR_LABEL1 ("Compressor") // label used in logging for temp. sensor 1
+#define TEMP_SENSOR_LABEL2 ("Motor") // label used in logging for temp. sensor 2
+#define TEMP_REPORT_ERROR1 ("temperature_sensor_1_(compressor)_error") // label used in reporting for temp. sensor 1
+#define TEMP_REPORT_WARNING1 ("temperature_sensor_1_(compressor)_warning") // label used in reporting for temp. sensor 1
+#define TEMP_REPORT1 ("temperature_sensor_1_(compressor)") // label used in reporting for temp. sensor 1
+#define TEMP_REPORT_ERROR2 ("temperature_sensor_2_(motor)_error") // label used in reporting for temp. sensor 2
+#define TEMP_REPORT_WARNING2 ("temperature_sensor_2_(motor)_warning") // label used in reporting for temp. sensor 2
+#define TEMP_REPORT2 ("temperature_sensor_2_(motor)") // label used in reporting for temp. sensor 2
+#define TEMP_IS_HIGH_LEVEL_1 (28.0) // in degrees Celcius, used for temperature is high warning of sensor 1
+#define TEMP_IS_TOO_HIGH_LEVEL_1 (30.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 1
+#define TEMP_IS_HIGH_LEVEL_2 (28.0) // in degrees Celcius, used for temperature is high warning of sensor 2
+#define TEMP_IS_TOO_HIGH_LEVEL_2 (30.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
+
+// NTP update window
+#define NTP_UPDATE_WINDOW (1000) // in ms
 
 // For LED's showing node error
 #define BLINKING_LED_PERIOD (600) // in ms
@@ -111,11 +114,14 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 // unless the button on is pressed again or a new auto on command is received while the compressor is
 // already switched on. In both cases the time will be extended by AUTOTIMEOUT ms.
 #define DISABLE_COMPRESSOR_AT_LATE_HOURS      (true)
-#define DISABLED_TIME_START                   (19) // in hour, time from which the compressor is not automatically switched on
-#define DISABLED_TIME_END                     (7) // in hour, time to which the compressor is not automatically switched on
+#define DISABLED_TIME_START                   (4) // in hour, time from which the compressor is not automatically switched on
+#define DISABLED_TIME_END                     (5) // in hour, time to which the compressor is not automatically switched on
 #define MAX_WAIT_TIME_BUTTON_ON_PRESSED       (10000)  // in ms, time button on must be pressed to override late hour compressor disable
 #define LED_DISABLE_DURATION                  (5000)  // in ms, the time LED1 will flash if button on is pressed during late hour
 #define LED_DISABLE_PERIOD                    (200)  // in ms, the time LED1 will flash on/off
+
+// time window for calibration buttons
+#define CALIB_WINDOW_TIME                     (5000) // in ms
 
 // Clear EEProm button
 // Press BUT1 on Olimex ESP32 PoE module before (re)boot of node
@@ -125,6 +131,10 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 #define CLEAR_EEPROM_AND_CACHE_BUTTON_PRESSED (LOW)
 
 #define MAX_WAIT_TIME_BUTTON_PRESSED          (4000)  // in ms
+
+// for logging to MQTT etc.
+#define LOGGING_ENABLED                       (true)  // to enable/disable logging
+#define LOGGING_TIME_WINDOW                   (20000)  // in ms
 
 // for testing with WiFi
 // ACNode node = ACNode(MACHINE, WIFI_NETWORK, WIFI_PASSWD);
@@ -171,24 +181,26 @@ float running = 0.0;
 unsigned long lastSavedPoweredCounter = 0;
 unsigned long lastSavedRunningCounter = 0;
 
+// pressure sensor
+PressureSensor thePressureSensor;
+
 // temperature sensors
 TemperatureSensor theTempSensor1(TEMP_IS_HIGH_LEVEL_1, TEMP_IS_TOO_HIGH_LEVEL_1, TEMP_SENSOR_LABEL1);
 TemperatureSensor theTempSensor2(TEMP_IS_HIGH_LEVEL_2, TEMP_IS_TOO_HIGH_LEVEL_2, TEMP_SENSOR_LABEL2);
 
-// OledDisplay
-OledDisplay theOledDisplay;
-
-// pressure sensor
-PressureSensor thePressureSensor;
-
 // oil level sensor
 OilLevelSensor theOilLevelSensor;
+
+// OledDisplay
+OledDisplay theOledDisplay;
 
 unsigned long blinkingLedNextTime = 0;
 bool blinkingLedIsOn = false;
 bool ledIsBlinking = false;
 
 char reportStr[128];
+
+unsigned long nextLoggingTime = 0;
 
 unsigned long DurationCounterSave;
 
@@ -204,12 +216,19 @@ unsigned long nextLedDisableTime = 0;
 bool showLedDisable = false;
 bool disableLedIsOn = false;
 
-bool OptoDetectsPower = false;
 unsigned long autoPowerOff;
 bool compressorIsOn = false;
 
+bool automaticStopReceived = false;
+bool automaticPowerOnReceived = false;
+bool automaticPowerOnDenied = false;
+
+bool checkCalibButtonsPressed = false;
+long int checkCalibTimeOut = 0;
 bool showInfoAndCalibration = false;
 IPAddress theLocalIPAddress;
+
+unsigned long nextNTPUpdateTime = 0;
 
 void checkClearEEPromAndCacheButtonPressed(void) {
   unsigned long ButtonPressedTime;
@@ -388,11 +407,20 @@ bool compressorIsDisabeled() {
   Serial.print("Current hour: ");
   Serial.println(currentHour);
 */  
-  if (ErrorOilLevelIsTooLow || ErrorTempIsTooHigh[0] || ErrorTempIsTooHigh[1] ||
-      (((currentHour >= DISABLED_TIME_START) || (currentHour < DISABLED_TIME_END)) && DISABLE_COMPRESSOR_AT_LATE_HOURS)) {
-    return true;
+  if (DISABLED_TIME_START < DISABLED_TIME_END) {
+    if (ErrorOilLevelIsTooLow ||  theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh ||
+        (((currentHour >= DISABLED_TIME_START) && (currentHour < DISABLED_TIME_END)) && DISABLE_COMPRESSOR_AT_LATE_HOURS)) {
+      return true;
+    } else {
+      return false;
+    }
   } else {
-    return false;
+    if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh ||
+        (((currentHour >= DISABLED_TIME_START) || (currentHour < DISABLED_TIME_END)) && DISABLE_COMPRESSOR_AT_LATE_HOURS)) {
+      return true;
+    } else {
+      return false;
+    }
   }
 }
 
@@ -436,44 +464,14 @@ void setup() {
 
   // node.set_report_period(2 * 1000);
 
-/*
-  // init temperature sensors and start reading first values
-  theTempSensor1.begin();
-  theTempSensor2.begin();
-*/
-  opto1.onOptoChange([](OptoDebounce::state_t state) {
-
-    if (state) {
-      OptoDetectsPower = true;
-//      if (machinestate == POWERED) {
-//        machinestate = RUNNING;
-//        digitalWrite(LED2, 1);
-//      }
-    } else {
-      OptoDetectsPower = false;
-//      if (machinestate > POWERED) {
-//        machinestate = POWERED;
-//        digitalWrite(LED2, 0);
-//      }
-    }
-  });
-
-
   buttonOn.setCallback([](int state) {
     // Debug.printf("Button On changed to %d\n", state);
-    if ((state == BUTTON_ON_PRESSED) && !ErrorOilLevelIsTooLow && !ErrorTempIsTooHigh[0] && !ErrorTempIsTooHigh[1] 
+    if ((state == BUTTON_ON_PRESSED) && !ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh 
          && (buttonOff.state() != BUTTON_OFF_PRESSED) && (machinestate == SWITCHEDOFF)) {
       if (!compressorIsDisabeled()) {
-        Log.printf("Compressor switched on with button\n");
         digitalWrite(RELAY_GPIO, 1);
-        digitalWrite(LED1, 1);
-        if (OptoDetectsPower) {
-          digitalWrite(LED2, 1);
-          machinestate = RUNNING;
-        } else {
-          digitalWrite(LED2, 0);
-          machinestate = POWERED;
-        }
+        digitalWrite(LED1, 1);      
+        machinestate = POWERED;
         compressorIsOn = true;
         autoPowerOff = millis() + AUTOTIMEOUT;
         isManualSwitchedOn = true;
@@ -481,8 +479,6 @@ void setup() {
       } else {
         verifyButtonOnPressedTime = millis() + MAX_WAIT_TIME_BUTTON_ON_PRESSED;
         isManualSwitchedOnVerifyOverride = true;
-        Log.println("Power on denied!");
-        Log.println("Power on is disabled during evening/night window");
         // flash LED to show that function is disabled
         ledDisableTime = millis() + LED_DISABLE_DURATION;
         nextLedDisableTime = millis() + LED_DISABLE_PERIOD;
@@ -491,35 +487,55 @@ void setup() {
         disableLedIsOn = true;
         verifyButtonOnIsStillPressed = true;
       }
-
-
     } else {
       if ((state == BUTTON_ON_PRESSED) && (machinestate > SWITCHEDOFF)) {
         autoPowerOff = millis() + AUTOTIMEOUT;
         isManualTimeOutExtended = true;
       }
       verifyButtonOnIsStillPressed = false;
+
+      if ((state == BUTTON_ON_PRESSED) && (buttonOff.state() == BUTTON_OFF_PRESSED)) {
+        if (showInfoAndCalibration) {
+          showInfoAndCalibration = false;
+        } else {
+          checkCalibButtonsPressed = true;
+          checkCalibTimeOut = millis() + CALIB_WINDOW_TIME;
+        }
+      } else {
+        if (!(state == BUTTON_ON_PRESSED)) {
+          checkCalibButtonsPressed = false;
+        }
+      }
     }
   });
 
   buttonOff.setCallback([](int state) {
 //    Debug.printf("Button Off changed to %d\n", state);
     if ((state == BUTTON_OFF_PRESSED) && (buttonOn.state() != BUTTON_ON_PRESSED) && (machinestate >= POWERED)) {
-
-      Log.printf("Compressor switched off with button\n");
       digitalWrite(RELAY_GPIO, 0);
       digitalWrite(LED1, 0);
       digitalWrite(LED2, 0);
       compressorIsOn = false;
       machinestate = SWITCHEDOFF;
       isManualSwitchedOff = true;
+    } else {
+      if ((state == BUTTON_OFF_PRESSED) && (buttonOn.state() == BUTTON_ON_PRESSED)) {
+        if (showInfoAndCalibration) {
+          showInfoAndCalibration = false;
+        } else {
+          checkCalibButtonsPressed = true;
+          checkCalibTimeOut = millis() + CALIB_WINDOW_TIME;
+        }
+      } else {
+        if (!(state == BUTTON_OFF_PRESSED)) {
+          checkCalibButtonsPressed = false;
+        }
+      }
     }
   });
 
   buttonInfoCalibration.setCallback([](int state) {
-    if (state == BUTTON_INFO_CALIBRATION_PRESSED) {
-      showInfoAndCalibration = !showInfoAndCalibration;
-    }
+    showInfoAndCalibration = !showInfoAndCalibration;
     saveDurationCounters();
   });
 
@@ -532,25 +548,23 @@ void setup() {
     machinestate = NOCONN;
   });
   node.onError([](acnode_error_t err) {
-    Log.printf("Error %d\n", err);
+    Log.print("Error ");
+    Log.println(err);
     machinestate = TRANSIENTERROR;
   });
 
   node.onValidatedCmd([](const char *cmd, const char * rest) -> ACBase::cmd_result_t  {
     if (!strcasecmp(cmd, "stop")) {
-      Log.println("Request received to stop the compressor");
       machinestate = SWITCHEDOFF;
       digitalWrite(RELAY_GPIO, 0);
       digitalWrite(LED1, 0);
       digitalWrite(LED2, 0);
       compressorIsOn = false;
-      Log.println("Compressor stopped");
-      theOledDisplay.showStatus(AUTOSWITCHOFF);
+      automaticStopReceived = true;
       return ACNode::CMD_CLAIMED;
     };
 
     if (!strcasecmp(cmd, "poweron")) {
-      Log.println("Request received to power on the compressor");
       if (!compressorIsDisabeled()) {
         if (machinestate < POWERED) {
           digitalWrite(RELAY_GPIO, 1);
@@ -558,13 +572,11 @@ void setup() {
           digitalWrite(LED2, 0);
           compressorIsOn = true;
           machinestate = POWERED;
-          Log.println("Compressor powered on");
-          theOledDisplay.showStatus(AUTOSWITCHON);
+          automaticPowerOnReceived = true;
         };
         autoPowerOff = millis() + AUTOTIMEOUT;
       } else {
-        Log.println("Request denied to power on the compressor. Reason: late hours/night!");
-        theOledDisplay.showStatus(AUTOONDENIED);
+        automaticPowerOnDenied = true;
       }
       return ACBase::CMD_CLAIMED;
     };
@@ -582,35 +594,35 @@ void setup() {
     sprintf(reportStr, "%f hours", running);
     report["running_time"] = reportStr;
 
-    if (temperature[0] == -127) {
+    if (theTempSensor1.temperature == -127) {
       sprintf(reportStr, "Error reading temperature sensor 1 (%s), perhaps not connected?", TEMP_SENSOR_LABEL1);
     } else {
-      if (ErrorTempIsTooHigh[0]) {
+      if (theTempSensor1.ErrorTempIsTooHigh) {
         sprintf(reportStr, "ERROR: Temperature sensor 1 (%s) is too high, compressor is disabled!", TEMP_SENSOR_LABEL1);
         report[TEMP_REPORT_ERROR1] = reportStr;
       } else {
-        if (tempIsHigh[0]) {
+        if (theTempSensor1.tempIsHigh) {
           sprintf(reportStr, "WARNING: Temperature sensor 1 (%s) is very high!", TEMP_SENSOR_LABEL1);
           report[TEMP_REPORT_WARNING1] = reportStr;
         }
       }
-      sprintf(reportStr, "%f degrees Celcius", temperature[0]);
+      sprintf(reportStr, "%f degrees Celcius", theTempSensor1.temperature);
     }
     report[TEMP_REPORT1] = reportStr;
 
-    if (temperature[1] == -127) {
+    if (theTempSensor2.temperature == -127) {
       sprintf(reportStr, "Error reading temperature sensor 2 (%s), perhaps not connected?", TEMP_SENSOR_LABEL2);
     } else {
-      if (ErrorTempIsTooHigh[1]) {
+      if (theTempSensor2.ErrorTempIsTooHigh) {
         sprintf(reportStr, "ERROR: Temperature sensor 2 (%s) is too high, compressor is disabled!", TEMP_SENSOR_LABEL2);
         report[TEMP_REPORT_ERROR1] = reportStr;
       } else {
-        if (tempIsHigh[1]) {
+        if (theTempSensor2.tempIsHigh) {
           sprintf(reportStr, "WARNING: Temperature sensor 2 (%s) is very high!", TEMP_SENSOR_LABEL2);
           report[TEMP_REPORT_WARNING2] = reportStr;
         }
       }
-      sprintf(reportStr, "%f degrees Celcius", temperature[1]);
+      sprintf(reportStr, "%f degrees Celcius", theTempSensor2.temperature);
     }
     report[TEMP_REPORT2] = reportStr;
 
@@ -627,11 +639,6 @@ void setup() {
     }
     sprintf(reportStr, "%5.3f MPa", pressure);
     report["pressure_sensor"] = reportStr;
-
-//    theLocalIPAddress = node.localIP();
-//    report["IPAddress"] = theLocalIPAddress.toString();
-
-
 #ifdef OTA_PASSWD
     report["ota"] = true;
 #else
@@ -673,15 +680,15 @@ void buttons_optocoupler_loop() {
 
   opto1.loop();
 
-  if (OptoDetectsPower) {
+  if (opto1.state() == OptoDebounce::ON) {
     if (machinestate == POWERED) {
       digitalWrite(LED2, 1);
       machinestate = RUNNING;
-    } else {
-      if (machinestate == running) {
-        digitalWrite(LED2, 0);
-        machinestate = POWERED;        
-      }
+    } 
+  } else {
+    if (machinestate == RUNNING) {
+      digitalWrite(LED2, 0);
+      machinestate = POWERED;        
     }
   }
 
@@ -690,21 +697,26 @@ void buttons_optocoupler_loop() {
 
   if (isManualSwitchedOn) {
     isManualSwitchedOn = false;
+    Log.println("Compressor switched on with button");
     theOledDisplay.showStatus(MANUALSWITCHON);
   }
 
   if (isManualSwitchedOnVerifyOverride) {
     isManualSwitchedOnVerifyOverride = false;
+    Log.println("Power on denied!");
+    Log.println("Power on is disabled during evening/night window");
     theOledDisplay.showStatus(POWERONDISABLED);
   }
 
   if (isManualSwitchedOff) {
     isManualSwitchedOff = false;
+    Log.println("Compressor switched off with button");
     theOledDisplay.showStatus(MANUALSWITCHOFF);
   }
 
   if (isManualTimeOutExtended) {
     isManualTimeOutExtended = false;
+    Log.println("Compressor timeout extended with button");
     theOledDisplay.showStatus(TIMEOUTEXTENDED);
   }
 
@@ -741,21 +753,36 @@ void buttons_optocoupler_loop() {
       digitalWrite(LED1, 0);
     }
   }
+
+  if (checkCalibButtonsPressed) {
+    if ((buttonOn.state() == BUTTON_ON_PRESSED) && (buttonOff.state() == BUTTON_OFF_PRESSED)) {
+      if (millis() > checkCalibTimeOut) {
+        showInfoAndCalibration = !showInfoAndCalibration;
+        saveDurationCounters();
+        checkCalibButtonsPressed = false;
+      }
+    } else {
+      checkCalibButtonsPressed = false;
+    }
+  }
 }
 
 void compressorLoop() {
  
-  ntp.update();
-
+  if (millis() >= nextNTPUpdateTime) {
+    ntp.update();
+    nextNTPUpdateTime = millis() + NTP_UPDATE_WINDOW;
+  }
+  
   if (machinestate > SWITCHEDOFF) {
     // check if compressor must be switched off
-    if (ErrorOilLevelIsTooLow || ErrorTempIsTooHigh[0] || ErrorTempIsTooHigh[1] || (millis() > autoPowerOff)) {
+    if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh || (millis() > autoPowerOff)) {
       digitalWrite(RELAY_GPIO, 0);
       digitalWrite(LED1, 0);
       digitalWrite(LED2, 0);
       compressorIsOn = false;
       machinestate = SWITCHEDOFF;
-      if (ErrorOilLevelIsTooLow || ErrorTempIsTooHigh[0] || ErrorTempIsTooHigh[1]) {
+      if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh) {
         Log.println("Compressor is disabled now due to error(s). Please check compressor!");
       }
       if (millis() > autoPowerOff) {
@@ -764,7 +791,7 @@ void compressorLoop() {
       }
     }
   } else {
-    if (ErrorOilLevelIsTooLow || ErrorTempIsTooHigh[0] || ErrorTempIsTooHigh[1]) {
+    if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh) {
       ledIsBlinking = true;
       if (millis() > blinkingLedNextTime) {
         if (blinkingLedIsOn) {
@@ -779,9 +806,26 @@ void compressorLoop() {
       }
     }
   }
+  
+  if (automaticStopReceived) {
+    Log.println("Automatic request received: Compressor stopped");
+    theOledDisplay.showStatus(AUTOSWITCHOFF);
+    automaticStopReceived = false;
+  }
+  if (automaticPowerOnReceived) {
+    Log.println("Automatic request received: Compressor powered on");
+    theOledDisplay.showStatus(AUTOSWITCHON);
+    automaticPowerOnReceived = false;
+  }  
+
+  if (automaticPowerOnDenied) {
+    Log.println("Automatic request denied to power on the compressor. Reason: late hours/night!");
+    theOledDisplay.showStatus(AUTOONDENIED);
+    automaticPowerOnDenied = false;
+  }
 
   if (ledIsBlinking) {
-    if (!ErrorOilLevelIsTooLow && !ErrorTempIsTooHigh[0] && !ErrorTempIsTooHigh[1]) {
+    if (!ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh) {
       digitalWrite(LED1, 0);
       digitalWrite(LED2, 0);
       ledIsBlinking = false;
@@ -810,6 +854,86 @@ void compressorLoop() {
     thePressureSensor.logInfoCalibration();
     Log.println("");
   }
+
+  if (LOGGING_ENABLED && (millis() > nextLoggingTime)) {
+    nextLoggingTime = millis() + LOGGING_TIME_WINDOW;
+    
+    Log.println("");
+
+    // Log pressure
+    Log.print("Pressure = ");
+    Log.print(pressure);
+    Log.println(" MPa");
+
+    // Log oil level
+    if (ErrorOilLevelIsTooLow) {
+      Log.println("ERROR: Oil level is too low; Compressor will be disabled; Please maintain the compressor by filling up the oil");
+    } else {
+      if (oilLevelIsTooLow) {
+        Log.println("Warning: Oil level is too low; Compressor will be disabled soon if this issue is not solved; Please verify the oil level and fill up if needed");
+      } else {
+        Log.println("Oil level is OK!");
+      }
+    }
+
+    // log temperature
+    if (theTempSensor1.temperature == -127) {
+      sprintf(reportStr, "Error reading temperature sensor 1 (%s), perhaps not connected?", TEMP_SENSOR_LABEL1);
+    } else {
+      if (theTempSensor1.ErrorTempIsTooHigh) {
+        sprintf(reportStr, "ERROR: Temperature sensor 1 (%s) is too high, compressor is disabled!", TEMP_SENSOR_LABEL1);
+        Log.println(reportStr);
+      } else {
+        if (theTempSensor1.tempIsHigh) {
+          sprintf(reportStr, "WARNING: Temperature sensor 1 (%s) is very high!", TEMP_SENSOR_LABEL1);
+          Log.println(reportStr);
+        }
+      }
+      sprintf(reportStr, "Temperature sensor 1 (%s) = %f degrees Celcius", TEMP_SENSOR_LABEL1, theTempSensor1.temperature);
+    }
+    Log.println(reportStr);
+
+    if (theTempSensor2.temperature == -127) {
+      sprintf(reportStr, "Error reading temperature sensor 2 (%s), perhaps not connected?", TEMP_SENSOR_LABEL2);
+    } else {
+      if (theTempSensor2.ErrorTempIsTooHigh) {
+        sprintf(reportStr, "ERROR: Temperature sensor 2 (%s) is too high, compressor is disabled!", TEMP_SENSOR_LABEL2);
+        Log.println(reportStr);
+      } else {
+        if (theTempSensor2.tempIsHigh) {
+          sprintf(reportStr, "WARNING: Temperature sensor 2 (%s) is very high!", TEMP_SENSOR_LABEL2);
+          Log.println(reportStr);
+        }
+      }
+      sprintf(reportStr, "Temperature sensor 2 (%s) = %f degrees Celcius", TEMP_SENSOR_LABEL2, theTempSensor2.temperature);
+    }  
+    Log.println(reportStr);
+
+    // Log machine state
+    switch (machinestate) {
+      case SWITCHEDOFF:
+          Log.println("Compressor is switched off");
+        break;
+      case POWERED:
+        if (!compressorIsOn) {
+          Log.println("Compressor is switched on, motor is off");
+        } else {
+          Log.println("Compressor is switched on, motor is off");
+        }
+        break;
+      case RUNNING:
+        Log.println("Compressor is switched on, motor is running");
+        break;
+      case REBOOT:
+      case WAITINGFORCARD:
+      case CHECKINGCARD:
+      case TRANSIENTERROR:
+      case OUTOFORDER:
+      case NOCONN:
+      case BOOTING:
+        break;
+    }
+  }
 }
 
 void loop() {
@@ -822,8 +946,9 @@ void loop() {
   thePressureSensor.loop();
 
   if (!showLedDisable) {
-    theOledDisplay.loop(oilLevelIsTooLow, ErrorOilLevelIsTooLow, temperature[0], tempIsHigh[0], 
-                        ErrorTempIsTooHigh[0], temperature[1], tempIsHigh[1], ErrorTempIsTooHigh[1],
+    theOledDisplay.loop(oilLevelIsTooLow, ErrorOilLevelIsTooLow, 
+                        theTempSensor1.temperature, theTempSensor1.tempIsHigh, theTempSensor1.ErrorTempIsTooHigh, 
+                        theTempSensor2.temperature, theTempSensor2.tempIsHigh, theTempSensor2.ErrorTempIsTooHigh,
                         pressure, machinestate, 
                         powered_total, powered_last,
                         running_total, running_last);
@@ -832,8 +957,10 @@ void loop() {
   compressorLoop();
 
   if (laststate != machinestate) {
-    Log.printf("Changed from state <%s> to state <%s>\n",
-               state[laststate].label, state[machinestate].label);
+    Log.print("Changed from state ");
+    Log.print(state[laststate].label);
+    Log.print(" to state ");
+    Log.println(state[machinestate].label);
 
     if (machinestate >= POWERED && laststate < POWERED) {
       powered_last = millis();
@@ -855,8 +982,10 @@ void loop() {
       (millis() - laststatechange > state[machinestate].maxTimeInMilliSeconds)) {
     laststate = machinestate;
     machinestate = state[machinestate].failStateOnTimeout;
-    Debug.printf("Time-out; transition from %s to %s\n",
-               state[laststate].label, state[machinestate].label);
+    Debug.print("Time-out; transition from ");
+    Debug.print(state[laststate].label);
+    Debug.print(" to ");
+    Debug.println(state[machinestate].label);
     return;
   };
 
@@ -877,35 +1006,22 @@ void loop() {
         digitalWrite(LED1, 0);
         digitalWrite(LED2, 0);
         compressorIsOn = false;
-        Log.printf("Compressor switched off\n");
+        Log.println("Compressor switched off");
       }
       break;
 
     case POWERED:
       // Compressor switched on, but motor is off
-      static unsigned long lastpowered = 0;
-
       if (!compressorIsOn) {
         digitalWrite(RELAY_GPIO, 1);
         digitalWrite(LED1, 1);
         digitalWrite(LED2, 0);
         compressorIsOn = true;
-        Log.printf("Compressor switched on, motor is off\n");
-      } else {
-        if (millis() - lastpowered > 10 * 1000 || lastpowered == 0) {
-          Log.printf("Compressor switched on, motor is off\n");
-          lastpowered = millis();
-        };
+        Log.println("Compressor switched on, motor is off");
       }
       break;
     case RUNNING:
       // Compressor switched on and motor is running
-        static unsigned long lastrunning = 0;
-
-        if (millis() - lastrunning > 10 * 1000 || lastrunning == 0) {
-          Log.println("Compressor switched on, motor is running");
-          lastrunning = millis();
-        };
       break;
 
     case WAITINGFORCARD:

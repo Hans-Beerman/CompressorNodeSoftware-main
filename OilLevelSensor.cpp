@@ -10,13 +10,11 @@
 // oil level sensor
 #define TO_LOW_OIL_LEVEL (LOW) // the input level of the GPIO port used for the oil level sensor signalling too low oil level
 #define MAX_OIL_LEVEL_IS_TOO_LOW_WINDOW (10000) // in ms default 10000 = 10 seconds. Error is signalled after this time window is passed
-#define OIL_LEVEL_LOG_WINDOW (60000) // in ms
 
 ButtonDebounce oilLevel(OILLEVELSENSOR, 300 /* mSeconds */); // to signal if the oil level is too low (or not)
 
 bool oilLevelIsTooLow = false;
 bool waitForError = false;
-unsigned long oilLevelNextLoggingTime = 0;
 unsigned long oilLevelIsTooLowStart = 0;
 bool ErrorOilLevelIsTooLow = false;
 
@@ -50,6 +48,13 @@ void OilLevelSensor::begin() {
       waitForError = false;
     }
   });
+  if (oilLevel.state() == TO_LOW_OIL_LEVEL) {
+    nextTimeDisplay = true;
+    oilLevelIsTooLow = true;
+    oilLevelIsTooLowStart = millis();
+    waitForError = true;
+    Log.println("Warning: Oil level is too low; Compressor will be disabled soon if this issue is not solved; Please verify the oil level and fill up if needed");
+  }
 }
 
 void OilLevelSensor::loop() {
@@ -62,19 +67,6 @@ void OilLevelSensor::loop() {
       nextTimeDisplay = true;
       Log.println("ERROR: Oil level is too low; Compressor will be disabled; Please maintain the compressor by filling up the oil");
     }
-  }
-
-  if (millis() > oilLevelNextLoggingTime) {
-    if (ErrorOilLevelIsTooLow) {
-      Log.println("ERROR: Oil level is too low; Compressor will be disabled; Please maintain the compressor by filling up the oil");
-    } else {
-      if (oilLevelIsTooLow) {
-        Log.println("Warning: Oil level is too low; Compressor will be disabled soon if this issue is not solved; Please verify the oil level and fill up if needed");
-      } else {
-        Log.println("Oil level is OK!");
-      }
-    }
-    oilLevelNextLoggingTime = millis() + OIL_LEVEL_LOG_WINDOW;
   }
 }
 

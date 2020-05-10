@@ -1,6 +1,6 @@
 **Source code CompressorNode Makerspace Leiden**
 
-Current version: V0.6 Concept
+Current version: V0.8 Concept
 
 This repository contains the source code for the CompressorNode used in the Makerspace Leiden.
 
@@ -14,7 +14,8 @@ This software is developed with Visual Studio Code in combination with the exten
 
 - _Button On_: to manual switch on the compressor;
 - _Button Off_: to manual switch off the compressor;
-- _but1_: to toggle info / calibration mode on or off. but1 is the second button of the ESP32-PoE module. Press this button, when the node is running (the boot screen is not shown anymore). When info calibration mode is active each second e.g. the IP address and calibration info is logged to MQTT and telnet etc. Also the duratution counters are saved in flash, every time this button is pressed;
+- _Button On + Button Off_: if both buttons are pressed together for more than 5 seconds, while calibration mode is disabled, calibration mode will be disabled. Pressing both buttons together while calibration mode is enabled, calibration mode is disabled immediately. Also the duratution counters are saved in flash, every time calibration mode is enabled;
+- _but1_: also used to toggle info / calibration mode on or off. but1 is the second button of the ESP32-PoE module. Press this button, when the node is running (the boot screen is not shown anymore). When info calibration mode is active each second e.g. the IP address and calibration info is logged to MQTT and telnet etc. Also the duratution counters are saved in flash, every time this button is pressed;
 - _Automatic switch on_: switch the compressor on by means of dedicated MQTT messages
 - _Automatic switch off_: switch the compressor off by means of dedicated MQTT mesages
 - _Timeout_: the compressor will automatically switch off after a certain (in source code) configured timeout, currently after 30 minutes. Pressing Button On again (or sending MQTT command), while the compressor is switched on, will extend the timeout with 30 minutes;
@@ -49,7 +50,7 @@ This library is used to collect the correct local time via NTP;
 
 **Configuratie PlatformIO**
 
-The configuration for this Project in PlatformIO is stored in the platformio.ini file, the content of this file is file is shown next, the IP address (10.0.0.127) is an example, please change this to the correct IP address, given by the network to which the node is connected:
+The configuration for this Project in PlatformIO is stored in the platformio.ini file, the content of this file is shown next, the IP address (192.168.5.95) is the current IP address of the node in the Makerspace, please change this to the correct IP address, given by the network to which the node is connected:
 
 _;PlatformIO Project Configuration File_
 
@@ -81,7 +82,7 @@ _; enable ota_
 
 _upload\_protocol = espota_
 
-_upload\_port = 10.0.0.127_
+_upload\_port = 192.168.5.95_
 
 _upload\_flags =_
 
@@ -112,6 +113,18 @@ In main.cpp:
 #define TEMP\_SENSOR\_LABEL1 ("Compressor") // label used in logging for temp. sensor 1
 
 #define TEMP\_SENSOR\_LABEL2 ("Motor") // label used in logging for temp. sensor 2
+
+#define TEMP\_REPORT\_ERROR1 ("temperature_sensor_1_(compressor)_error") // label used in reporting for temp. sensor 1
+
+#define TEMP\_REPORT\_WARNING1 ("temperature_sensor_1_(compressor)_warning") // label used in reporting for temp. sensor 1
+
+#define TEMP\_REPORT\1 ("temperature_sensor_1_(compressor)") // label used in reporting for temp. sensor 1
+
+#define TEMP\_REPORT\_ERROR2 ("temperature_sensor_2_(motor)_error") // label used in reporting for temp. sensor 2
+
+#define TEMP\_REPORT\_WARNING2 ("temperature_sensor_2_(motor)_warning") // label used in reporting for temp. sensor 2
+
+#define TEMP\_REPORT2 ("temperature_sensor_2_(motor)") // label used in reporting for temp. sensor 2
 
 #define TEMP\_IS\_HIGH\_LEVEL\_1 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 1
 
@@ -182,6 +195,14 @@ In main.cpp:
 In main.cpp:
 
 #define MAX\_WAIT\_TIME\_BUTTON\_PRESSED (4000) // in ms
+
+- _For logging to MQTT etc.:_
+
+In main.cpp:
+
+#define LOGGING_ENABLED                       (true)  // to enable/disable logging
+
+#define LOGGING_TIME_WINDOW                   (20000)  // in ms
 
 - _The time between updates of the display:_
 

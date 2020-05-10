@@ -2,12 +2,6 @@
 
 #include <DallasTemperature.h> // install DallasTemperature by Miles Burton
 
-#define MAX_TEMP_SENSORS (2) // maximum number of sensors used
-
-extern float temperature[MAX_TEMP_SENSORS];
-extern bool tempIsHigh[MAX_TEMP_SENSORS];
-extern bool ErrorTempIsTooHigh[MAX_TEMP_SENSORS];
-
 class TemperatureSensor {
 
 private:
@@ -22,8 +16,13 @@ private:
 	unsigned long tempAvailableTime = 0;
 	unsigned long tempIsTooHighStart = 0;
 	int tryCount;
+	char labelTempSensor[20];
 
 public:
+  float temperature;
+  bool tempIsHigh;
+  bool ErrorTempIsTooHigh;
+
   TemperatureSensor(float tempIsHighLevel, float tempIsTooHighLevel, const char *tempLabel);
 
   void begin();
