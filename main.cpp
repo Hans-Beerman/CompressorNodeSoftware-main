@@ -61,7 +61,7 @@ NTP ntp(wifiUDP);
 #define OTA_PASSWD "MyPassWoord"
 
 // for test
-#define MACHINE "test-compressor2"
+#define MACHINE "test-compressor1"
 // define MACHINE "compressor"
 
 // button on and button off
@@ -85,10 +85,11 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 #define TEMP_REPORT_ERROR2 ("temperature_sensor_2_(motor)_error") // label used in reporting for temp. sensor 2
 #define TEMP_REPORT_WARNING2 ("temperature_sensor_2_(motor)_warning") // label used in reporting for temp. sensor 2
 #define TEMP_REPORT2 ("temperature_sensor_2_(motor)") // label used in reporting for temp. sensor 2
-#define TEMP_IS_HIGH_LEVEL_1 (28.0) // in degrees Celcius, used for temperature is high warning of sensor 1
-#define TEMP_IS_TOO_HIGH_LEVEL_1 (30.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 1
-#define TEMP_IS_HIGH_LEVEL_2 (28.0) // in degrees Celcius, used for temperature is high warning of sensor 2
-#define TEMP_IS_TOO_HIGH_LEVEL_2 (30.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
+// Temperature warning and error levels
+#define TEMP_IS_HIGH_LEVEL_1 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 1
+#define TEMP_IS_TOO_HIGH_LEVEL_1 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 1
+#define TEMP_IS_HIGH_LEVEL_2 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 2
+#define TEMP_IS_TOO_HIGH_LEVEL_2 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
 
 // NTP update window
 #define NTP_UPDATE_WINDOW (1000) // in ms
@@ -114,8 +115,8 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 // unless the button on is pressed again or a new auto on command is received while the compressor is
 // already switched on. In both cases the time will be extended by AUTOTIMEOUT ms.
 #define DISABLE_COMPRESSOR_AT_LATE_HOURS      (true)
-#define DISABLED_TIME_START                   (4) // in hour, time from which the compressor is not automatically switched on
-#define DISABLED_TIME_END                     (5) // in hour, time to which the compressor is not automatically switched on
+#define DISABLED_TIME_START                   (19) // in hour, time from which the compressor is not automatically switched on
+#define DISABLED_TIME_END                     (7) // in hour, time to which the compressor is not automatically switched on
 #define MAX_WAIT_TIME_BUTTON_ON_PRESSED       (10000)  // in ms, time button on must be pressed to override late hour compressor disable
 #define LED_DISABLE_DURATION                  (5000)  // in ms, the time LED1 will flash if button on is pressed during late hour
 #define LED_DISABLE_PERIOD                    (200)  // in ms, the time LED1 will flash on/off
