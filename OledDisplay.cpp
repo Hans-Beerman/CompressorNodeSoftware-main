@@ -213,7 +213,7 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
         if ((pressure != lastPressureDisplayed) || nextTimeDisplay) {
           lastPressureDisplayed = pressure;
           u8x8.setFont(u8x8_font_px437wyse700b_2x2_f);
-          sprintf(outputStr, "%4.2f MPa", pressure); 
+          sprintf(outputStr, "%4.1f bar", pressure); 
           u8x8.drawString(0, 0, "Pressure");
           u8x8.drawString(0, 2, outputStr);
         }

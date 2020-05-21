@@ -1,6 +1,6 @@
 **Source code CompressorNode Makerspace Leiden**
 
-Current version: V0.8 Concept
+Current version: V0.9 Concept
 
 This repository contains the source code for the CompressorNode used in the Makerspace Leiden.
 
@@ -134,6 +134,12 @@ In main.cpp:
 
 #define TEMP_IS\_TOO\_HIGH\_LEVEL\_2 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
 
+- _The LED's dim value:_
+In main.cpp:
+
+#define LED1\_DIM\_VALUE (50) // 0 - 255, 0 = LED1 is off
+#define LED2\_DIM\_VALUE (50) // 0 - 255, 0 = LED2 is off
+
 - _The time interval of the LED&#39;s in case of an error:_
 
 In main.cpp:
@@ -242,9 +248,9 @@ In PressureSensor.cpp:
 
 #define PRESSURE\_CALIBRATE\_VALUE\_4\_5V (2600) // in measured bits
 
-The air pressure sensor output is 0.5 V when the pressure is 0 MPa.
+The air pressure sensor output is 0.5 V when the pressure is 0 bar.
 
-The output is 4.5 V when the pressure is 1.2 MPa
+The output is 4.5 V when the pressure is 12 bar
 
 - _The time between samples of the air pressure:_
 

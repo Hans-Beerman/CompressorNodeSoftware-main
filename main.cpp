@@ -94,6 +94,15 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 // NTP update window
 #define NTP_UPDATE_WINDOW (1000) // in ms
 
+
+// setting PWM properties for LED's
+#define PWM_FREQ (5000)
+#define PWM_LED_CHANNEL1 (0)
+#define PWM_LED_CHANNEL2 (1)
+#define PWM_RESOLUTION (8)
+#define LED1_DIM_VALUE (50) // 0 - 255, 0 = LED1 is off
+#define LED2_DIM_VALUE (50) // 0 - 255, 0 = LED2 is off
+
 // For LED's showing node error
 #define BLINKING_LED_PERIOD (600) // in ms
 
@@ -438,10 +447,20 @@ void setup() {
   pinMode(ON_BUTTON, INPUT_PULLUP);
   pinMode(OFF_BUTTON, INPUT_PULLUP);
 
+  /*
   pinMode(LED1, OUTPUT);
   digitalWrite(LED1, 0);
   pinMode(LED2, OUTPUT);
   digitalWrite(LED2, 0);
+  */
+
+  // configure LED PWM functionalitites for dimming the LED's
+  ledcSetup(PWM_LED_CHANNEL1, PWM_FREQ, PWM_RESOLUTION);
+  ledcSetup(PWM_LED_CHANNEL2, PWM_FREQ, PWM_RESOLUTION);
+
+  // attach the channels to the GPIO's to be controlled
+  ledcAttachPin(LED1, PWM_LED_CHANNEL1);
+  ledcAttachPin(LED2, PWM_LED_CHANNEL2);
 
   theOledDisplay.begin(TEMP_IS_HIGH_LEVEL_1, TEMP_IS_TOO_HIGH_LEVEL_1, TEMP_IS_HIGH_LEVEL_2, TEMP_IS_TOO_HIGH_LEVEL_2);
 
@@ -471,7 +490,8 @@ void setup() {
          && (buttonOff.state() != BUTTON_OFF_PRESSED) && (machinestate == SWITCHEDOFF)) {
       if (!compressorIsDisabeled()) {
         digitalWrite(RELAY_GPIO, 1);
-        digitalWrite(LED1, 1);      
+        // digitalWrite(LED1, 1);   
+        ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);   
         machinestate = POWERED;
         compressorIsOn = true;
         autoPowerOff = millis() + AUTOTIMEOUT;
@@ -484,7 +504,8 @@ void setup() {
         ledDisableTime = millis() + LED_DISABLE_DURATION;
         nextLedDisableTime = millis() + LED_DISABLE_PERIOD;
         showLedDisable = true;
-        digitalWrite(LED1, 1);
+        // digitalWrite(LED1, 1);
+        ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);
         disableLedIsOn = true;
         verifyButtonOnIsStillPressed = true;
       }
@@ -495,7 +516,7 @@ void setup() {
       }
       verifyButtonOnIsStillPressed = false;
 
-      if ((state == BUTTON_ON_PRESSED) && (buttonOff.state() == BUTTON_OFF_PRESSED)) {
+      if ((state == BUTTON_ON_PRESSED) && (digitalRead(OFF_BUTTON) == BUTTON_OFF_PRESSED)) {
         if (showInfoAndCalibration) {
           showInfoAndCalibration = false;
         } else {
@@ -514,13 +535,15 @@ void setup() {
 //    Debug.printf("Button Off changed to %d\n", state);
     if ((state == BUTTON_OFF_PRESSED) && (buttonOn.state() != BUTTON_ON_PRESSED) && (machinestate >= POWERED)) {
       digitalWrite(RELAY_GPIO, 0);
-      digitalWrite(LED1, 0);
-      digitalWrite(LED2, 0);
+      // digitalWrite(LED1, 0);
+      // digitalWrite(LED2, 0);
+      ledcWrite(PWM_LED_CHANNEL1, 0);
+      ledcWrite(PWM_LED_CHANNEL2, 0);
       compressorIsOn = false;
       machinestate = SWITCHEDOFF;
       isManualSwitchedOff = true;
     } else {
-      if ((state == BUTTON_OFF_PRESSED) && (buttonOn.state() == BUTTON_ON_PRESSED)) {
+      if ((state == BUTTON_OFF_PRESSED) && (digitalRead(ON_BUTTON) == BUTTON_ON_PRESSED)) {
         if (showInfoAndCalibration) {
           showInfoAndCalibration = false;
         } else {
@@ -558,8 +581,10 @@ void setup() {
     if (!strcasecmp(cmd, "stop")) {
       machinestate = SWITCHEDOFF;
       digitalWrite(RELAY_GPIO, 0);
-      digitalWrite(LED1, 0);
-      digitalWrite(LED2, 0);
+      // digitalWrite(LED1, 0);
+      // digitalWrite(LED2, 0);
+      ledcWrite(PWM_LED_CHANNEL1, 0);
+      ledcWrite(PWM_LED_CHANNEL2, 0);
       compressorIsOn = false;
       automaticStopReceived = true;
       return ACNode::CMD_CLAIMED;
@@ -569,8 +594,10 @@ void setup() {
       if (!compressorIsDisabeled()) {
         if (machinestate < POWERED) {
           digitalWrite(RELAY_GPIO, 1);
-          digitalWrite(LED1, 1);
-          digitalWrite(LED2, 0);
+          // digitalWrite(LED1, 1);
+          // digitalWrite(LED2, 0);
+          ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);
+          ledcWrite(PWM_LED_CHANNEL2, 0);
           compressorIsOn = true;
           machinestate = POWERED;
           automaticPowerOnReceived = true;
@@ -638,7 +665,7 @@ void setup() {
         report["oil_level_sensor_warning"] = "WARNING: Oil level is too low!";
       }
     }
-    sprintf(reportStr, "%5.3f MPa", pressure);
+    sprintf(reportStr, "%5.2f bar", pressure);
     report["pressure_sensor"] = reportStr;
 #ifdef OTA_PASSWD
     report["ota"] = true;
@@ -683,12 +710,14 @@ void buttons_optocoupler_loop() {
 
   if (opto1.state() == OptoDebounce::ON) {
     if (machinestate == POWERED) {
-      digitalWrite(LED2, 1);
+      // digitalWrite(LED2, 1);
+      ledcWrite(PWM_LED_CHANNEL2, LED2_DIM_VALUE);
       machinestate = RUNNING;
     } 
   } else {
     if (machinestate == RUNNING) {
-      digitalWrite(LED2, 0);
+      // digitalWrite(LED2, 0);
+      ledcWrite(PWM_LED_CHANNEL2, 0);
       machinestate = POWERED;        
     }
   }
@@ -726,8 +755,10 @@ void buttons_optocoupler_loop() {
       if (buttonOn.state() == BUTTON_ON_PRESSED) {
         verifyButtonOnIsStillPressed = false;
         digitalWrite(RELAY_GPIO, 1);
-        digitalWrite(LED1, 1);
-        digitalWrite(LED2, 0);
+        // digitalWrite(LED1, 1);
+        // digitalWrite(LED2, 0);
+        ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);
+        ledcWrite(PWM_LED_CHANNEL2, 0);
         compressorIsOn = true;
         machinestate = POWERED;
         autoPowerOff = millis() + AUTOTIMEOUT; 
@@ -742,16 +773,19 @@ void buttons_optocoupler_loop() {
       if (millis() >= nextLedDisableTime) {
         nextLedDisableTime = /* millis() */ nextLedDisableTime + LED_DISABLE_PERIOD;
         if (disableLedIsOn) {
-          digitalWrite(LED1, 0);
+          // digitalWrite(LED1, 0);
+          ledcWrite(PWM_LED_CHANNEL1, 0);
         } else {
-          digitalWrite(LED1, 1);
+          // digitalWrite(LED1, 1);
+          ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);
         }
         disableLedIsOn = !disableLedIsOn;
       }
     } else {
       showLedDisable = false;
       disableLedIsOn = false;
-      digitalWrite(LED1, 0);
+      // digitalWrite(LED1, 0);
+      ledcWrite(PWM_LED_CHANNEL1, 0);
     }
   }
 
@@ -779,8 +813,10 @@ void compressorLoop() {
     // check if compressor must be switched off
     if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh || (millis() > autoPowerOff)) {
       digitalWrite(RELAY_GPIO, 0);
-      digitalWrite(LED1, 0);
-      digitalWrite(LED2, 0);
+      // digitalWrite(LED1, 0);
+      // digitalWrite(LED2, 0);
+      ledcWrite(PWM_LED_CHANNEL1, 0);
+      ledcWrite(PWM_LED_CHANNEL2, 0);
       compressorIsOn = false;
       machinestate = SWITCHEDOFF;
       if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh) {
@@ -796,11 +832,15 @@ void compressorLoop() {
       ledIsBlinking = true;
       if (millis() > blinkingLedNextTime) {
         if (blinkingLedIsOn) {
-          digitalWrite(LED1, 0);
-          digitalWrite(LED2, 0);
+          // digitalWrite(LED1, 0);
+          // digitalWrite(LED2, 0);
+          ledcWrite(PWM_LED_CHANNEL1, 0);
+          ledcWrite(PWM_LED_CHANNEL2, 0);
         } else {
-          digitalWrite(LED1, 1);
-          digitalWrite(LED2, 1);
+          // digitalWrite(LED1, 1);
+          // digitalWrite(LED2, 1);
+          ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);
+          ledcWrite(PWM_LED_CHANNEL2, LED2_DIM_VALUE);
         }
         blinkingLedIsOn = !blinkingLedIsOn;
         blinkingLedNextTime = millis() + BLINKING_LED_PERIOD;
@@ -827,8 +867,10 @@ void compressorLoop() {
 
   if (ledIsBlinking) {
     if (!ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh) {
-      digitalWrite(LED1, 0);
-      digitalWrite(LED2, 0);
+      // digitalWrite(LED1, 0);
+      // digitalWrite(LED2, 0);
+      ledcWrite(PWM_LED_CHANNEL1, 0);
+      ledcWrite(PWM_LED_CHANNEL2, 0);
       ledIsBlinking = false;
     }
   }
@@ -864,7 +906,7 @@ void compressorLoop() {
     // Log pressure
     Log.print("Pressure = ");
     Log.print(pressure);
-    Log.println(" MPa");
+    Log.println(" bar");
 
     // Log oil level
     if (ErrorOilLevelIsTooLow) {
@@ -1004,8 +1046,10 @@ void loop() {
       // Compressor switched off completely.
       if (compressorIsOn) {
         digitalWrite(RELAY_GPIO, 0);
-        digitalWrite(LED1, 0);
-        digitalWrite(LED2, 0);
+        // digitalWrite(LED1, 0);
+        // digitalWrite(LED2, 0);
+        ledcWrite(PWM_LED_CHANNEL1, 0);
+        ledcWrite(PWM_LED_CHANNEL2, 0);
         compressorIsOn = false;
         Log.println("Compressor switched off");
       }
@@ -1015,8 +1059,10 @@ void loop() {
       // Compressor switched on, but motor is off
       if (!compressorIsOn) {
         digitalWrite(RELAY_GPIO, 1);
-        digitalWrite(LED1, 1);
-        digitalWrite(LED2, 0);
+        // digitalWrite(LED1, 1);
+        // digitalWrite(LED2, 0);
+        ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);
+        ledcWrite(PWM_LED_CHANNEL2, 0);
         compressorIsOn = true;
         Log.println("Compressor switched on, motor is off");
       }

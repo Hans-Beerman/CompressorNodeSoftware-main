@@ -28,7 +28,7 @@ void PressureSensor::loop() {
       pressureADCVal = PRESSURE_CALIBRATE_VALUE_0_5V;
     }
     pressureVoltage = (((float)pressureADCVal - (float)PRESSURE_CALIBRATE_VALUE_0_5V) * 4.0) / ((float)PRESSURE_CALIBRATE_VALUE_4_5V - (float)PRESSURE_CALIBRATE_VALUE_0_5V) + 0.5;
-    pressure = ((pressureVoltage - 0.5) / 4.0) * 1.2;
+    pressure = (((pressureVoltage - 0.5) / 4.0) * 1.2) * 10; // pressure in bar
     newCalibrationInfoAvailable = true;
   }
 }
@@ -42,7 +42,7 @@ void PressureSensor::logInfoCalibration() {
   Log.println(" V");
   Log.print("Pressure = ");
   Log.print(pressure);
-  Log.println(" MPa");
+  Log.println(" bar");
   newCalibrationInfoAvailable = false;
 }
 
