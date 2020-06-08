@@ -16,7 +16,9 @@ float pressure = 0;
 unsigned long pressureNextSampleTime = 0;
 bool newCalibrationInfoAvailable = false;
 
-PressureSensor::PressureSensor() {
+PressureSensor::PressureSensor(float maxPressureLimit, float minPressureLimit) {
+  pressureMaxLimit = maxPressureLimit;
+  pressureMinLimit = minPressureLimit;
 	return;
 }
 
@@ -30,6 +32,8 @@ void PressureSensor::loop() {
     pressureVoltage = (((float)pressureADCVal - (float)PRESSURE_CALIBRATE_VALUE_0_5V) * 4.0) / ((float)PRESSURE_CALIBRATE_VALUE_4_5V - (float)PRESSURE_CALIBRATE_VALUE_0_5V) + 0.5;
     pressure = (((pressureVoltage - 0.5) / 4.0) * 1.2) * 10; // pressure in bar
     newCalibrationInfoAvailable = true;
+    pressureIsAboveMaximum = pressure > pressureMaxLimit;
+    pressureIsBelowMinimum = pressure < pressureMinLimit;
   }
 }
 
@@ -45,4 +49,13 @@ void PressureSensor::logInfoCalibration() {
   Log.println(" bar");
   newCalibrationInfoAvailable = false;
 }
+
+  bool PressureSensor::tooHighPressure() {
+    return pressureIsAboveMaximum;
+  }
+
+  bool PressureSensor::lowPressure() {
+    return pressureIsBelowMinimum;
+  }
+
 

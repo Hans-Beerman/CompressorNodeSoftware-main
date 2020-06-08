@@ -61,7 +61,7 @@ NTP ntp(wifiUDP);
 #define OTA_PASSWD "MyPassWoord"
 
 // for test
-#define MACHINE "test-compressor1"
+#define MACHINE "test-compressor2"
 // define MACHINE "compressor"
 
 // button on and button off
@@ -90,6 +90,12 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 #define TEMP_IS_TOO_HIGH_LEVEL_1 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 1
 #define TEMP_IS_HIGH_LEVEL_2 (60.0) // in degrees Celcius, used for temperature is high warning of sensor 2
 #define TEMP_IS_TOO_HIGH_LEVEL_2 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
+
+
+// Pressure limits, used for safety
+#define PRESSURE_MAX_LIMIT (11.0)   // Compressor must be switched off above this limit for safety
+#define PRESSURE_BELOW_LIMIT (10.0) // If compressor was switched off because pressure was to high, 
+                                    // compressor can be switched on again if pressure becomes below this limit
 
 // NTP update window
 #define NTP_UPDATE_WINDOW (1000) // in ms
@@ -192,7 +198,7 @@ unsigned long lastSavedPoweredCounter = 0;
 unsigned long lastSavedRunningCounter = 0;
 
 // pressure sensor
-PressureSensor thePressureSensor;
+PressureSensor thePressureSensor(PRESSURE_MAX_LIMIT, PRESSURE_BELOW_LIMIT);
 
 // temperature sensors
 TemperatureSensor theTempSensor1(TEMP_IS_HIGH_LEVEL_1, TEMP_IS_TOO_HIGH_LEVEL_1, TEMP_SENSOR_LABEL1);
@@ -232,6 +238,8 @@ bool compressorIsOn = false;
 bool automaticStopReceived = false;
 bool automaticPowerOnReceived = false;
 bool automaticPowerOnDenied = false;
+
+bool compressorIsSwitchedOffDueToTooHighPressure = false;
 
 bool checkCalibButtonsPressed = false;
 long int checkCalibTimeOut = 0;
@@ -418,7 +426,7 @@ bool compressorIsDisabeled() {
   Serial.println(currentHour);
 */  
   if (DISABLED_TIME_START < DISABLED_TIME_END) {
-    if (ErrorOilLevelIsTooLow ||  theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh ||
+    if (ErrorOilLevelIsTooLow ||  theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh || compressorIsSwitchedOffDueToTooHighPressure || thePressureSensor.tooHighPressure() ||
         (((currentHour >= DISABLED_TIME_START) && (currentHour < DISABLED_TIME_END)) && DISABLE_COMPRESSOR_AT_LATE_HOURS)) {
       return true;
     } else {
@@ -487,6 +495,7 @@ void setup() {
   buttonOn.setCallback([](int state) {
     // Debug.printf("Button On changed to %d\n", state);
     if ((state == BUTTON_ON_PRESSED) && !ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh 
+         && !compressorIsSwitchedOffDueToTooHighPressure && thePressureSensor.lowPressure()
          && (buttonOff.state() != BUTTON_OFF_PRESSED) && (machinestate == SWITCHEDOFF)) {
       if (!compressorIsDisabeled()) {
         digitalWrite(RELAY_GPIO, 1);
@@ -510,6 +519,10 @@ void setup() {
         verifyButtonOnIsStillPressed = true;
       }
     } else {
+      if (compressorIsSwitchedOffDueToTooHighPressure || !thePressureSensor.lowPressure()) {
+        theOledDisplay.showStatus(ERRORPRESSUREISTOOHIGH);
+        compressorIsSwitchedOffDueToTooHighPressure = true;
+      }
       if ((state == BUTTON_ON_PRESSED) && (machinestate > SWITCHEDOFF)) {
         autoPowerOff = millis() + AUTOTIMEOUT;
         isManualTimeOutExtended = true;
@@ -533,7 +546,7 @@ void setup() {
 
   buttonOff.setCallback([](int state) {
 //    Debug.printf("Button Off changed to %d\n", state);
-    if ((state == BUTTON_OFF_PRESSED) && (buttonOn.state() != BUTTON_ON_PRESSED) && (machinestate >= POWERED)) {
+    if ((state == BUTTON_OFF_PRESSED) && (buttonOn.state() != BUTTON_ON_PRESSED) && ((machinestate >= POWERED) || compressorIsSwitchedOffDueToTooHighPressure)) {
       digitalWrite(RELAY_GPIO, 0);
       // digitalWrite(LED1, 0);
       // digitalWrite(LED2, 0);
@@ -542,6 +555,10 @@ void setup() {
       compressorIsOn = false;
       machinestate = SWITCHEDOFF;
       isManualSwitchedOff = true;
+      if (compressorIsSwitchedOffDueToTooHighPressure) {
+        compressorIsSwitchedOffDueToTooHighPressure = false;
+        theOledDisplay.showStatus(NOSTATUS);
+      }
     } else {
       if ((state == BUTTON_OFF_PRESSED) && (digitalRead(ON_BUTTON) == BUTTON_ON_PRESSED)) {
         if (showInfoAndCalibration) {
@@ -587,6 +604,7 @@ void setup() {
       ledcWrite(PWM_LED_CHANNEL2, 0);
       compressorIsOn = false;
       automaticStopReceived = true;
+      compressorIsSwitchedOffDueToTooHighPressure = false;
       return ACNode::CMD_CLAIMED;
     };
 
@@ -811,7 +829,7 @@ void compressorLoop() {
   
   if (machinestate > SWITCHEDOFF) {
     // check if compressor must be switched off
-    if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh || (millis() > autoPowerOff)) {
+    if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh || thePressureSensor.tooHighPressure() || (millis() > autoPowerOff)) {
       digitalWrite(RELAY_GPIO, 0);
       // digitalWrite(LED1, 0);
       // digitalWrite(LED2, 0);
@@ -822,13 +840,20 @@ void compressorLoop() {
       if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh) {
         Log.println("Compressor is disabled now due to error(s). Please check compressor!");
       }
+      if (thePressureSensor.tooHighPressure()) {
+        compressorIsSwitchedOffDueToTooHighPressure = true;
+        Log.print("Pressure is too high: ");
+        Log.print(pressure);
+        Log.println(" bar, compressor is switched off");
+        theOledDisplay.showStatus(ERRORPRESSUREISTOOHIGH);
+      }
       if (millis() > autoPowerOff) {
         Log.println("Timeout: compressor automatically switched off");
         theOledDisplay.showStatus(TIMEOUT);
       }
     }
   } else {
-    if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh) {
+    if (ErrorOilLevelIsTooLow || theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh || !thePressureSensor.lowPressure()) {
       ledIsBlinking = true;
       if (millis() > blinkingLedNextTime) {
         if (blinkingLedIsOn) {
@@ -844,6 +869,14 @@ void compressorLoop() {
         }
         blinkingLedIsOn = !blinkingLedIsOn;
         blinkingLedNextTime = millis() + BLINKING_LED_PERIOD;
+      }
+    } else {
+      if (compressorIsSwitchedOffDueToTooHighPressure && thePressureSensor.lowPressure()) {
+        compressorIsSwitchedOffDueToTooHighPressure = false;
+        if (millis() < autoPowerOff) {
+          machinestate = POWERED;
+          theOledDisplay.showStatus(NOSTATUS);
+        }
       }
     }
   }
@@ -866,7 +899,7 @@ void compressorLoop() {
   }
 
   if (ledIsBlinking) {
-    if (!ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh) {
+    if (!ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh && !compressorIsSwitchedOffDueToTooHighPressure) {
       // digitalWrite(LED1, 0);
       // digitalWrite(LED2, 0);
       ledcWrite(PWM_LED_CHANNEL1, 0);
@@ -991,7 +1024,7 @@ void loop() {
   if (!showLedDisable) {
     theOledDisplay.loop(oilLevelIsTooLow, ErrorOilLevelIsTooLow, 
                         theTempSensor1.temperature, theTempSensor1.tempIsHigh, theTempSensor1.ErrorTempIsTooHigh, 
-                        theTempSensor2.temperature, theTempSensor2.tempIsHigh, theTempSensor2.ErrorTempIsTooHigh,
+                        theTempSensor2.temperature, theTempSensor2.tempIsHigh, theTempSensor2.ErrorTempIsTooHigh, compressorIsSwitchedOffDueToTooHighPressure,
                         pressure, machinestate, 
                         powered_total, powered_last,
                         running_total, running_last);

@@ -38,6 +38,7 @@ struct {
 	{ "Poweron disabled", 15, true },
   { "Timout extended ", 15, true },
 	{ "Timeout ==> off ", 15, true },
+  { "Pressure toohigh", 15, false},
 	{ "OilLevel too low", 7, false },
 	{ "OilLevel OK!    ", 7, false },
 	{ "Warning         ", 15, false },
@@ -73,6 +74,8 @@ float poweredTime = 0.0;
 float lastPoweredDisplayed = 0.0;
 float runningTime = 0.0;
 float lastRunningDisplayed = 0.0;
+
+bool showStatusBusy = false;
 
 // for 1.5 inch OLED Display 128*128 pixels wit - I2C
 U8X8_SSD1327_WS_128X128_SW_I2C u8x8(I2C_SCL, I2C_SDA,U8X8_PIN_NONE);
@@ -112,8 +115,12 @@ void OledDisplay::clearDisplay() {
 }
 
 void OledDisplay::showStatus(statusdisplay_t statusMessage) {
-  char outputStr[20];
+  if (showStatusBusy) {
+    return;
+  }
+  char outputStr[30];
 
+  showStatusBusy = true;
   switch (statusMessage) {
     case NOSTATUS:
     case ERRORLOWOILLEVEL:
@@ -149,6 +156,7 @@ void OledDisplay::showStatus(statusdisplay_t statusMessage) {
   
   showStatusTemporarily = dispstatus[statusMessage].temporarily;
   clearStatusLineTime = millis() + KEEP_STATUS_LINE_TIME;
+  showStatusBusy = false;
 }
 
 void OledDisplay::clearEEPromWarning() {
@@ -180,7 +188,7 @@ void OledDisplay::cacheCleared() {
 }
 
 void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float temperature1, bool tempIsHigh1, 
-                      bool ErrorTempIsTooHigh1, float temperature2, bool tempIsHigh2, bool ErrorTempIsTooHigh2,
+                      bool ErrorTempIsTooHigh1, float temperature2, bool tempIsHigh2, bool ErrorTempIsTooHigh2, bool ErrorPressureIsToHigh,
                       float pressure, machinestates_t machinestate,
                       unsigned long powered_total, unsigned long powered_last,
                       unsigned long running_total, unsigned long running_last) {
@@ -353,7 +361,11 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
             if (ErrorTempIsTooHigh2) {
               showStatus(ERRORHIGHTEMP2);
             } else {
-              showStatus(NOSTATUS);
+              if (ErrorPressureIsToHigh) {
+                showStatus(ERRORPRESSUREISTOOHIGH);
+              } else {
+                showStatus(NOSTATUS);
+              }
             }
           }
         }

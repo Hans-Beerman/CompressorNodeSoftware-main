@@ -3,7 +3,7 @@
 #include <MachState.h>
 
 // software version
-#define SOFTWARE_VERSION "  V0.9  "
+#define SOFTWARE_VERSION "  V0.10 "
 
 typedef enum {
   NOSTATUS,
@@ -18,6 +18,7 @@ typedef enum {
   POWERONDISABLED,
   TIMEOUTEXTENDED,
   TIMEOUT,
+  ERRORPRESSUREISTOOHIGH,
   ERRORLOWOILLEVEL,
   NOLOWOILLEVEL,
   WARNINGHIGHTEMP1,
@@ -52,7 +53,7 @@ public:
   void cacheCleared();
 
   void loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float temperature1, bool tempIsHigh1, 
-            bool ErrorTempIsTooHigh1, float temperature2, bool tempIsHigh2, bool ErrorTempIsTooHigh2,
+            bool ErrorTempIsTooHigh1, float temperature2, bool tempIsHigh2, bool ErrorTempIsTooHigh2, bool ErrorPressureIsToHigh, 
             float pressure, machinestates_t machinestate,
             unsigned long powered_total, unsigned long powered_last,
             unsigned long running_total, unsigned long running_last);
