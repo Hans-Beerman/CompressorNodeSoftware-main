@@ -58,7 +58,7 @@
 WiFiUDP wifiUDP;
 NTP ntp(wifiUDP);
 
-#define OTA_PASSWD "MyPassWoord"
+#define OTA_PASSWD "admin"
 
 // for test
 #define MACHINE "test-compressor2"
@@ -152,6 +152,11 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 #define LOGGING_ENABLED                       (true)  // to enable/disable logging
 #define LOGGING_TIME_WINDOW                   (20000)  // in ms
 
+
+// for testing the timing of the different loops etc.
+// #define TEST_TIMING
+#define TEST_TIME_LIMIT (100)
+
 // for testing with WiFi
 // ACNode node = ACNode(MACHINE, WIFI_NETWORK, WIFI_PASSWD);
 ACNode node = ACNode(MACHINE);
@@ -239,7 +244,9 @@ bool automaticStopReceived = false;
 bool automaticPowerOnReceived = false;
 bool automaticPowerOnDenied = false;
 
-bool compressorIsSwitchedOffDueToTooHighPressure = false;
+bool ErrorPressureIsTooHigh = false;
+bool showErrorPressureIsTooHigh = false;
+bool showPressureIsOK = false;
 
 bool checkCalibButtonsPressed = false;
 long int checkCalibTimeOut = 0;
@@ -248,9 +255,15 @@ IPAddress theLocalIPAddress;
 
 unsigned long nextNTPUpdateTime = 0;
 
+
+// for testing loop timing
+long long prevTime = 0;
+int waitcount = 0;
+int placeCount = 0;
+long long averageTime[40] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,};
+
 void checkClearEEPromAndCacheButtonPressed(void) {
   unsigned long ButtonPressedTime;
-  unsigned long currentSecs;
   unsigned long prevSecs;
   bool firstTime = true;
 
@@ -264,28 +277,23 @@ void checkClearEEPromAndCacheButtonPressed(void) {
     theOledDisplay.clearEEPromWarning();
     ButtonPressedTime = millis();  
     prevSecs = MAX_WAIT_TIME_BUTTON_PRESSED / 1000;
+    Log.print("Keep the button pressed at least: ");
     Log.print(prevSecs);
-    Log.print(" s");
+    Log.println(" s");
     while (digitalRead(CLEAR_EEPROM_AND_CACHE_BUTTON) == CLEAR_EEPROM_AND_CACHE_BUTTON_PRESSED) {
       if (millis() >= ButtonPressedTime + MAX_WAIT_TIME_BUTTON_PRESSED) {
         if (firstTime) {
-          Log.print("\rPlease release button");
+          Log.println("");
+          Log.println("Please release the button");
           theOledDisplay.showStatus(RELEASEBUTTON);
           firstTime = false;
-        }
-      } else {
-        currentSecs = (MAX_WAIT_TIME_BUTTON_PRESSED - millis()) / 1000;
-        if ((currentSecs != prevSecs) && (currentSecs >= 0)) {
-          Log.print("\r");
-          Log.print(currentSecs);
-          Log.print(" s");
-          prevSecs = currentSecs;
         }
       }
     }
 
     if (millis() >= (ButtonPressedTime + MAX_WAIT_TIME_BUTTON_PRESSED)) {
-      Log.print("\rButton for clearing EEProm and cache was pressed for more than ");
+      Log.println("");
+      Log.print("Button for clearing EEProm and cache was pressed for more than ");
       Log.print(MAX_WAIT_TIME_BUTTON_PRESSED / 1000);
       Log.println(" s, EEProm and Cache will be cleared!");
       theOledDisplay.clearEEPromMessage();
@@ -426,7 +434,7 @@ bool compressorIsDisabeled() {
   Serial.println(currentHour);
 */  
   if (DISABLED_TIME_START < DISABLED_TIME_END) {
-    if (ErrorOilLevelIsTooLow ||  theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh || compressorIsSwitchedOffDueToTooHighPressure || thePressureSensor.tooHighPressure() ||
+    if (ErrorOilLevelIsTooLow ||  theTempSensor1.ErrorTempIsTooHigh || theTempSensor2.ErrorTempIsTooHigh || ErrorPressureIsTooHigh || thePressureSensor.tooHighPressure() ||
         (((currentHour >= DISABLED_TIME_START) && (currentHour < DISABLED_TIME_END)) && DISABLE_COMPRESSOR_AT_LATE_HOURS)) {
       return true;
     } else {
@@ -441,6 +449,88 @@ bool compressorIsDisabeled() {
     }
   }
 }
+
+void buttonOnChanged(int state) {
+  // Debug.printf("Button On changed to %d\n", state);
+  if ((state == BUTTON_ON_PRESSED) && !ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh 
+        && !ErrorPressureIsTooHigh && thePressureSensor.lowPressure()
+        && (buttonOff.state() != BUTTON_OFF_PRESSED) && (machinestate == SWITCHEDOFF)) {
+    if (!compressorIsDisabeled()) {
+      digitalWrite(RELAY_GPIO, 1);
+      // digitalWrite(LED1, 1);   
+      ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);   
+      machinestate = POWERED;
+      compressorIsOn = true;
+      autoPowerOff = millis() + AUTOTIMEOUT;
+      isManualSwitchedOn = true;
+      verifyButtonOnIsStillPressed = false;
+    } else {
+      verifyButtonOnPressedTime = millis() + MAX_WAIT_TIME_BUTTON_ON_PRESSED;
+      isManualSwitchedOnVerifyOverride = true;
+      // flash LED to show that function is disabled
+      ledDisableTime = millis() + LED_DISABLE_DURATION;
+      nextLedDisableTime = millis() + LED_DISABLE_PERIOD;
+      showLedDisable = true;
+      // digitalWrite(LED1, 1);
+      ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);
+      disableLedIsOn = true;
+      verifyButtonOnIsStillPressed = true;
+    }
+  } else {
+    if (ErrorPressureIsTooHigh || !thePressureSensor.lowPressure()) {
+      showErrorPressureIsTooHigh = true;
+    }
+    if ((state == BUTTON_ON_PRESSED) && (machinestate > SWITCHEDOFF)) {
+      autoPowerOff = millis() + AUTOTIMEOUT;
+      isManualTimeOutExtended = true;
+    }
+    verifyButtonOnIsStillPressed = false;
+
+    if ((state == BUTTON_ON_PRESSED) && (digitalRead(OFF_BUTTON) == BUTTON_OFF_PRESSED)) {
+      if (showInfoAndCalibration) {
+        showInfoAndCalibration = false;
+      } else {
+        checkCalibButtonsPressed = true;
+        checkCalibTimeOut = millis() + CALIB_WINDOW_TIME;
+      }
+    } else {
+      if (!(state == BUTTON_ON_PRESSED)) {
+        checkCalibButtonsPressed = false;
+      }
+    }
+  }
+}
+
+void buttonOffChanged(int state) {
+//    Debug.printf("Button Off changed to %d\n", state);
+  if ((state == BUTTON_OFF_PRESSED) && (buttonOn.state() != BUTTON_ON_PRESSED) && ((machinestate >= POWERED) || ErrorPressureIsTooHigh)) {
+    digitalWrite(RELAY_GPIO, 0);
+    // digitalWrite(LED1, 0);
+    // digitalWrite(LED2, 0);
+    ledcWrite(PWM_LED_CHANNEL1, 0);
+    ledcWrite(PWM_LED_CHANNEL2, 0);
+    compressorIsOn = false;
+    machinestate = SWITCHEDOFF;
+    isManualSwitchedOff = true;
+    if (ErrorPressureIsTooHigh) {
+      showPressureIsOK = true;
+    }
+  } else {
+    if ((state == BUTTON_OFF_PRESSED) && (digitalRead(ON_BUTTON) == BUTTON_ON_PRESSED)) {
+      if (showInfoAndCalibration) {
+        showInfoAndCalibration = false;
+      } else {
+        checkCalibButtonsPressed = true;
+        checkCalibTimeOut = millis() + CALIB_WINDOW_TIME;
+      }
+    } else {
+      if (!(state == BUTTON_OFF_PRESSED)) {
+        checkCalibButtonsPressed = false;
+      }
+    }
+  }
+}
+
 
 void setup() {
   Serial.begin(115200);
@@ -492,88 +582,9 @@ void setup() {
 
   // node.set_report_period(2 * 1000);
 
-  buttonOn.setCallback([](int state) {
-    // Debug.printf("Button On changed to %d\n", state);
-    if ((state == BUTTON_ON_PRESSED) && !ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh 
-         && !compressorIsSwitchedOffDueToTooHighPressure && thePressureSensor.lowPressure()
-         && (buttonOff.state() != BUTTON_OFF_PRESSED) && (machinestate == SWITCHEDOFF)) {
-      if (!compressorIsDisabeled()) {
-        digitalWrite(RELAY_GPIO, 1);
-        // digitalWrite(LED1, 1);   
-        ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);   
-        machinestate = POWERED;
-        compressorIsOn = true;
-        autoPowerOff = millis() + AUTOTIMEOUT;
-        isManualSwitchedOn = true;
-        verifyButtonOnIsStillPressed = false;
-      } else {
-        verifyButtonOnPressedTime = millis() + MAX_WAIT_TIME_BUTTON_ON_PRESSED;
-        isManualSwitchedOnVerifyOverride = true;
-        // flash LED to show that function is disabled
-        ledDisableTime = millis() + LED_DISABLE_DURATION;
-        nextLedDisableTime = millis() + LED_DISABLE_PERIOD;
-        showLedDisable = true;
-        // digitalWrite(LED1, 1);
-        ledcWrite(PWM_LED_CHANNEL1, LED1_DIM_VALUE);
-        disableLedIsOn = true;
-        verifyButtonOnIsStillPressed = true;
-      }
-    } else {
-      if (compressorIsSwitchedOffDueToTooHighPressure || !thePressureSensor.lowPressure()) {
-        theOledDisplay.showStatus(ERRORPRESSUREISTOOHIGH);
-        compressorIsSwitchedOffDueToTooHighPressure = true;
-      }
-      if ((state == BUTTON_ON_PRESSED) && (machinestate > SWITCHEDOFF)) {
-        autoPowerOff = millis() + AUTOTIMEOUT;
-        isManualTimeOutExtended = true;
-      }
-      verifyButtonOnIsStillPressed = false;
+  buttonOn.setCallback(buttonOnChanged);
 
-      if ((state == BUTTON_ON_PRESSED) && (digitalRead(OFF_BUTTON) == BUTTON_OFF_PRESSED)) {
-        if (showInfoAndCalibration) {
-          showInfoAndCalibration = false;
-        } else {
-          checkCalibButtonsPressed = true;
-          checkCalibTimeOut = millis() + CALIB_WINDOW_TIME;
-        }
-      } else {
-        if (!(state == BUTTON_ON_PRESSED)) {
-          checkCalibButtonsPressed = false;
-        }
-      }
-    }
-  });
-
-  buttonOff.setCallback([](int state) {
-//    Debug.printf("Button Off changed to %d\n", state);
-    if ((state == BUTTON_OFF_PRESSED) && (buttonOn.state() != BUTTON_ON_PRESSED) && ((machinestate >= POWERED) || compressorIsSwitchedOffDueToTooHighPressure)) {
-      digitalWrite(RELAY_GPIO, 0);
-      // digitalWrite(LED1, 0);
-      // digitalWrite(LED2, 0);
-      ledcWrite(PWM_LED_CHANNEL1, 0);
-      ledcWrite(PWM_LED_CHANNEL2, 0);
-      compressorIsOn = false;
-      machinestate = SWITCHEDOFF;
-      isManualSwitchedOff = true;
-      if (compressorIsSwitchedOffDueToTooHighPressure) {
-        compressorIsSwitchedOffDueToTooHighPressure = false;
-        theOledDisplay.showStatus(NOSTATUS);
-      }
-    } else {
-      if ((state == BUTTON_OFF_PRESSED) && (digitalRead(ON_BUTTON) == BUTTON_ON_PRESSED)) {
-        if (showInfoAndCalibration) {
-          showInfoAndCalibration = false;
-        } else {
-          checkCalibButtonsPressed = true;
-          checkCalibTimeOut = millis() + CALIB_WINDOW_TIME;
-        }
-      } else {
-        if (!(state == BUTTON_OFF_PRESSED)) {
-          checkCalibButtonsPressed = false;
-        }
-      }
-    }
-  });
+  buttonOff.setCallback(buttonOffChanged);
 
   buttonInfoCalibration.setCallback([](int state) {
     showInfoAndCalibration = !showInfoAndCalibration;
@@ -604,7 +615,7 @@ void setup() {
       ledcWrite(PWM_LED_CHANNEL2, 0);
       compressorIsOn = false;
       automaticStopReceived = true;
-      compressorIsSwitchedOffDueToTooHighPressure = false;
+      ErrorPressureIsTooHigh = false;
       return ACNode::CMD_CLAIMED;
     };
 
@@ -740,9 +751,6 @@ void buttons_optocoupler_loop() {
     }
   }
 
-  buttonOn.update();
-  buttonOff.update();
-
   if (isManualSwitchedOn) {
     isManualSwitchedOn = false;
     Log.println("Compressor switched on with button");
@@ -841,7 +849,7 @@ void compressorLoop() {
         Log.println("Compressor is disabled now due to error(s). Please check compressor!");
       }
       if (thePressureSensor.tooHighPressure()) {
-        compressorIsSwitchedOffDueToTooHighPressure = true;
+        ErrorPressureIsTooHigh = true;
         Log.print("Pressure is too high: ");
         Log.print(pressure);
         Log.println(" bar, compressor is switched off");
@@ -871,14 +879,26 @@ void compressorLoop() {
         blinkingLedNextTime = millis() + BLINKING_LED_PERIOD;
       }
     } else {
-      if (compressorIsSwitchedOffDueToTooHighPressure && thePressureSensor.lowPressure()) {
-        compressorIsSwitchedOffDueToTooHighPressure = false;
+      if (ErrorPressureIsTooHigh && thePressureSensor.lowPressure()) {
+        ErrorPressureIsTooHigh = false;
         if (millis() < autoPowerOff) {
           machinestate = POWERED;
           theOledDisplay.showStatus(NOSTATUS);
         }
       }
     }
+  }
+
+  if (showErrorPressureIsTooHigh) {
+    theOledDisplay.showStatus(ERRORPRESSUREISTOOHIGH);
+    ErrorPressureIsTooHigh = true;
+    showErrorPressureIsTooHigh = false;
+  }
+
+  if (showPressureIsOK) {
+    ErrorPressureIsTooHigh = false;
+    theOledDisplay.showStatus(NOSTATUS);
+    showPressureIsOK = false;
   }
   
   if (automaticStopReceived) {
@@ -896,10 +916,10 @@ void compressorLoop() {
     Log.println("Automatic request denied to power on the compressor. Reason: late hours/night!");
     theOledDisplay.showStatus(AUTOONDENIED);
     automaticPowerOnDenied = false;
-  }
+  }  
 
   if (ledIsBlinking) {
-    if (!ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh && !compressorIsSwitchedOffDueToTooHighPressure) {
+    if (!ErrorOilLevelIsTooLow && !theTempSensor1.ErrorTempIsTooHigh && !theTempSensor2.ErrorTempIsTooHigh && !ErrorPressureIsTooHigh) {
       // digitalWrite(LED1, 0);
       // digitalWrite(LED2, 0);
       ledcWrite(PWM_LED_CHANNEL1, 0);
@@ -1012,25 +1032,77 @@ void compressorLoop() {
   }
 }
 
+
+#ifdef TEST_TIMING
+void testLoopTiming(const char LoopPlace[]) {
+  long long timeDiff;
+  char tmpStr[50];
+
+  timeDiff = millis() - prevTime;
+  averageTime[placeCount] = averageTime[placeCount] + timeDiff;
+
+  if (waitcount >= 999) {
+    if ((averageTime[placeCount] > TEST_TIME_LIMIT) || (TEST_TIME_LIMIT <= 0)) {
+      sprintf(tmpStr, "%s: %lld ms", LoopPlace, averageTime[placeCount]);
+      Serial.println(tmpStr);
+    }
+    averageTime[placeCount] = 0;
+  }
+  placeCount++;
+  prevTime = millis();
+}
+#endif
+
 void loop() {
+#ifdef TEST_TIMING
+  prevTime = millis();
+  placeCount = 0;
+#endif
 
   node.loop();
+#ifdef TEST_TIMING
+  testLoopTiming("na node.loop");
+#endif
 
   theTempSensor1.loop();
   theTempSensor2.loop();
+#ifdef TEST_TIMING
+  testLoopTiming("na theTempSensor1 en 2.loop");
+#endif
 
   thePressureSensor.loop();
+#ifdef TEST_TIMING
+  testLoopTiming("na thePressureSensor.loop");
+#endif
 
   if (!showLedDisable) {
     theOledDisplay.loop(oilLevelIsTooLow, ErrorOilLevelIsTooLow, 
                         theTempSensor1.temperature, theTempSensor1.tempIsHigh, theTempSensor1.ErrorTempIsTooHigh, 
-                        theTempSensor2.temperature, theTempSensor2.tempIsHigh, theTempSensor2.ErrorTempIsTooHigh, compressorIsSwitchedOffDueToTooHighPressure,
+                        theTempSensor2.temperature, theTempSensor2.tempIsHigh, theTempSensor2.ErrorTempIsTooHigh, ErrorPressureIsTooHigh,
                         pressure, machinestate, 
                         powered_total, powered_last,
                         running_total, running_last);
   }
+#ifdef TEST_TIMING
+  testLoopTiming("na theOledDisplay.loop");
+#endif
 
   compressorLoop();
+#ifdef TEST_TIMING
+  testLoopTiming("na compressorLoop");
+#endif
+
+
+  buttons_optocoupler_loop();
+#ifdef TEST_TIMING
+  testLoopTiming("na buttons_optocoupler.loop");
+#endif
+
+
+  theOilLevelSensor.loop();
+#ifdef TEST_TIMING
+  testLoopTiming("na theOilLevelSensor.loop");
+#endif
 
   if (laststate != machinestate) {
     Log.print("Changed from state ");
@@ -1064,11 +1136,7 @@ void loop() {
     Debug.println(state[machinestate].label);
     return;
   };
-
-  buttons_optocoupler_loop();
-
-  theOilLevelSensor.loop();
-
+  
   switch (machinestate) {
     case REBOOT:
       saveDurationCounters();
@@ -1116,5 +1184,13 @@ void loop() {
       break;
   };
 
+#ifdef TEST_TIMING
+  testLoopTiming("na state machine (einde loop)");
+
+  waitcount++;
+  if (waitcount >= 1000) {
+    waitcount = 0;
+  }
+#endif
 }
 

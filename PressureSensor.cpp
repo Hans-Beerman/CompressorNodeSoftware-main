@@ -8,7 +8,7 @@
 // pressure sensor
 #define PRESSURE_SAMPLE_WINDOW (1000) // in ms
 #define PRESSURE_CALIBRATE_VALUE_0_5V (144) // in measured bits
-#define PRESSURE_CALIBRATE_VALUE_4_5V (2600) // in measured bits
+#define PRESSURE_CALIBRATE_VALUE_4_5V (3000) // in measured bits
 
 int pressureADCVal = 0;
 float pressureVoltage = 0;

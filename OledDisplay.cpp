@@ -75,10 +75,8 @@ float lastPoweredDisplayed = 0.0;
 float runningTime = 0.0;
 float lastRunningDisplayed = 0.0;
 
-bool showStatusBusy = false;
-
 // for 1.5 inch OLED Display 128*128 pixels wit - I2C
-U8X8_SSD1327_WS_128X128_SW_I2C u8x8(I2C_SCL, I2C_SDA,U8X8_PIN_NONE);
+U8X8_SSD1327_WS_128X128_SW_I2C u8x8(I2C_SCL, I2C_SDA, U8X8_PIN_NONE);
 
 OledDisplay::OledDisplay() {
   return;
@@ -97,8 +95,11 @@ void OledDisplay::begin(float tempIsHighLevel1, float tempIsTooHighLevel1, float
   theTempIsTooHighLevel2 = tempIsTooHighLevel2;
 
   u8x8.begin();
+  u8x8.clear();
+  u8x8.setCursor(0, 0);
 
   u8x8.setFont(u8x8_font_px437wyse700a_2x2_r);
+
   u8x8.drawString(0, 0, "CompNode");
 
   u8x8.setFont(u8x8_font_px437wyse700b_2x2_r);
@@ -115,12 +116,8 @@ void OledDisplay::clearDisplay() {
 }
 
 void OledDisplay::showStatus(statusdisplay_t statusMessage) {
-  if (showStatusBusy) {
-    return;
-  }
-  char outputStr[30];
+  char outputStr[20];
 
-  showStatusBusy = true;
   switch (statusMessage) {
     case NOSTATUS:
     case ERRORLOWOILLEVEL:
@@ -156,7 +153,6 @@ void OledDisplay::showStatus(statusdisplay_t statusMessage) {
   
   showStatusTemporarily = dispstatus[statusMessage].temporarily;
   clearStatusLineTime = millis() + KEEP_STATUS_LINE_TIME;
-  showStatusBusy = false;
 }
 
 void OledDisplay::clearEEPromWarning() {
@@ -194,6 +190,8 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
                       unsigned long running_total, unsigned long running_last) {
 
   char outputStr[20];
+  bool temp1PrintAll = false;
+  bool temp2PrintAll = false;
 
   if (!ErrorOilLevelIsTooLow && !ErrorTempIsTooHigh1 && !ErrorTempIsTooHigh2) {
     if (currentDisplayState == ERRORDISPLAY) {
@@ -221,19 +219,38 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
         if ((pressure != lastPressureDisplayed) || nextTimeDisplay) {
           lastPressureDisplayed = pressure;
           u8x8.setFont(u8x8_font_px437wyse700b_2x2_f);
-          sprintf(outputStr, "%4.1f bar", pressure); 
-          u8x8.drawString(0, 0, "Pressure");
+          if (nextTimeDisplay) {
+            u8x8.drawString(0, 0, "Pressure");
+            sprintf(outputStr, "%4.1f bar", pressure); 
+          } else {
+            sprintf(outputStr, "%4.1f", pressure); 
+          }
           u8x8.drawString(0, 2, outputStr);
         }
         if ((temperature1 != lastTempDisplayed1) || nextTimeDisplay) {
           lastTempDisplayed1 = temperature1;
           u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          if (temperature1 < -100) {
-            sprintf(outputStr, "Temp1: N.A.     ");
+          if (nextTimeDisplay) {
+            if (temperature1 < -100) {
+              sprintf(outputStr, "Temp1: N.A.     ");
+            } else {
+              sprintf(outputStr, "Temp1:%7.2f %cC", temperature1, 176);
+            }
+            u8x8.drawString(0, 5, outputStr);
           } else {
-            sprintf(outputStr, "Temp1:%7.2f %cC", temperature1, 176);
+            if (temperature1 < -100) {
+              sprintf(outputStr, " N.A.     ");
+              temp1PrintAll = true;
+            } else {
+              if (temp1PrintAll) {
+                sprintf(outputStr, "%7.2f %cC", temperature1, 176);
+              } else {
+                sprintf(outputStr, "%7.2f", temperature1);
+              }
+              temp1PrintAll = false;
+            }
+            u8x8.drawString(6, 5, outputStr);
           }
-          u8x8.drawString(0, 5, outputStr);
           if ((previousTempIsHigh1 != tempIsHigh1) || (previousErrorTempIsTooHigh1 != ErrorTempIsTooHigh1) || nextTimeDisplay) {
             if (ErrorTempIsTooHigh1) {
               showStatus(ERRORHIGHTEMP1);
@@ -254,12 +271,27 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
         if ((temperature2 != lastTempDisplayed2) || nextTimeDisplay) {
           lastTempDisplayed2 = temperature2;
           u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          if (temperature2 < -100) {
-            sprintf(outputStr, "Temp2: N.A.     ");
+          if (nextTimeDisplay) {
+            if (temperature2 < -100) {
+              sprintf(outputStr, "Temp2: N.A.     ");
+            } else {
+              sprintf(outputStr, "Temp2:%7.2f %cC", temperature2, 176);
+            }
+            u8x8.drawString(0, 6, outputStr);
           } else {
-            sprintf(outputStr, "Temp2:%7.2f %cC", temperature2, 176);
+            if (temperature2 < -100) {
+              sprintf(outputStr, " N.A.     ");
+              temp2PrintAll = true;
+            } else {
+              if (temp2PrintAll) {
+                sprintf(outputStr, "%7.2f %cC", temperature2, 176);
+              } else {
+                sprintf(outputStr, "%7.2f", temperature2);
+              }
+              temp2PrintAll = false;
+            }
+            u8x8.drawString(6, 6, outputStr);
           }
-          u8x8.drawString(0, 6, outputStr);
           if ((previousTempIsHigh2 != tempIsHigh2) || (previousErrorTempIsTooHigh2 != ErrorTempIsTooHigh2) || nextTimeDisplay) {
             if (ErrorTempIsTooHigh2) {
               showStatus(ERRORHIGHTEMP2);
@@ -280,7 +312,9 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
         if ((machinestate != laststateDisplayed)  || nextTimeDisplay) {
           laststateDisplayed = machinestate;
           u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-          u8x8.drawString(0, 9, "Machine state:  ");
+          if (nextTimeDisplay) {
+            u8x8.drawString(0, 9, "Machine state:  ");
+          }
           switch (machinestate) {
             case BOOTING:
                 sprintf(outputStr, "Booting         ");
@@ -310,7 +344,8 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
           u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
           u8x8.drawString(0, 10, outputStr);
         }
-        if ((oilLevelIsTooLow != lastOilLevelDisplayed)  || nextTimeDisplay) {
+
+        if ((oilLevelIsTooLow != lastOilLevelDisplayed) || nextTimeDisplay) {
           lastOilLevelDisplayed = oilLevelIsTooLow;
           if (oilLevelIsTooLow) {
             showStatus(ERRORLOWOILLEVEL);
@@ -329,8 +364,13 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
           if ((poweredTime != lastPoweredDisplayed) || nextTimeDisplay) {
             lastPoweredDisplayed = poweredTime;
             u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-            sprintf(outputStr, "On: %9.2f hr", poweredTime);
-            u8x8.drawString(0, 12, outputStr);
+            if (nextTimeDisplay) {
+              sprintf(outputStr, "On: %9.2f hr", poweredTime);
+              u8x8.drawString(0, 12, outputStr);
+            } else {
+              sprintf(outputStr, "%9.2f", poweredTime);
+              u8x8.drawString(4, 12, outputStr);
+            }
           }
         }
 
@@ -344,8 +384,13 @@ void OledDisplay::loop(bool oilLevelIsTooLow, bool ErrorOilLevelIsTooLow, float 
           if ((runningTime != lastRunningDisplayed) || nextTimeDisplay) {
             lastRunningDisplayed = runningTime;
             u8x8.setFont(u8x8_font_amstrad_cpc_extended_f);
-            sprintf(outputStr, "Run:%9.2f hr", runningTime);
-            u8x8.drawString(0, 13, outputStr);
+            if (nextTimeDisplay) {
+              sprintf(outputStr, "Run:%9.2f hr", runningTime);
+              u8x8.drawString(0, 13, outputStr);
+            } else {
+              sprintf(outputStr, "%9.2f", runningTime);
+              u8x8.drawString(4, 13, outputStr);
+            }
           }
         }
         nextTimeDisplay = false;

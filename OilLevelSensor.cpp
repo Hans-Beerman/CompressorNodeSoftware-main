@@ -36,25 +36,19 @@ void OilLevelSensor::begin() {
     } else {
       if (ErrorOilLevelIsTooLow) {
         Log.println("SOLVED: Oil level error!");
+        nextTimeDisplay = true;
       } else {
         if (oilLevelIsTooLow) {
           Log.println("Oil level OK now!");
-        }
+          nextTimeDisplay = true;
       }
-      nextTimeDisplay = true;
+      }
       oilLevelIsTooLow = false;
       oilLevelIsTooLowStart = 0;
       ErrorOilLevelIsTooLow = false;
       waitForError = false;
     }
   });
-  if (oilLevel.state() == TO_LOW_OIL_LEVEL) {
-    nextTimeDisplay = true;
-    oilLevelIsTooLow = true;
-    oilLevelIsTooLowStart = millis();
-    waitForError = true;
-    Log.println("Warning: Oil level is too low; Compressor will be disabled soon if this issue is not solved; Please verify the oil level and fill up if needed");
-  }
 }
 
 void OilLevelSensor::loop() {
