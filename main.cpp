@@ -58,7 +58,7 @@
 WiFiUDP wifiUDP;
 NTP ntp(wifiUDP);
 
-#define OTA_PASSWD "admin"
+#define OTA_PASSWD "MyPassW00rd"
 
 // for test
 #define MACHINE "test-compressor2"
@@ -93,7 +93,7 @@ OptoDebounce opto1(OPTO1); // wired to N0 - L1 of 3 phase compressor motor, to d
 
 
 // Pressure limits, used for safety
-#define PRESSURE_MAX_LIMIT (11.0)   // Compressor must be switched off above this limit for safety
+#define PRESSURE_MAX_LIMIT (12.0)   // Compressor must be switched off above this limit for safety
 #define PRESSURE_BELOW_LIMIT (10.0) // If compressor was switched off because pressure was to high, 
                                     // compressor can be switched on again if pressure becomes below this limit
 
@@ -1130,10 +1130,10 @@ void loop() {
       (millis() - laststatechange > state[machinestate].maxTimeInMilliSeconds)) {
     laststate = machinestate;
     machinestate = state[machinestate].failStateOnTimeout;
-    Debug.print("Time-out; transition from ");
-    Debug.print(state[laststate].label);
-    Debug.print(" to ");
-    Debug.println(state[machinestate].label);
+//    Debug.print("Time-out; transition from ");
+//    Debug.print(state[laststate].label);
+//    Debug.print(" to ");
+//    Debug.println(state[machinestate].label);
     return;
   };
   

@@ -1,6 +1,6 @@
 **Source code CompressorNode Makerspace Leiden**
 
-Current version: V0.9 Concept
+Current version: V0.11 Concept
 
 This repository contains the source code for the CompressorNode used in the Makerspace Leiden.
 
@@ -47,6 +47,10 @@ This library is used to collect the correct local time via NTP;
 
 - _DallasTemperature_: DallasTemperature by Miles Burton (#include <DallasTemperature.h>), current version 3.6.1, this library is used for the one wire temperature sensor based on the DS18B20;
 - _U8x8lib_: U8g2 library by oliver (#include <U8x8lib.h>), current version 2.28.2, this library is used for the 128x128 pixels Oled display used.
+
+WARNING:
+In PubSubClient.h the following define must be changed from 256 to 340:
+#define MQTT_MAX_PACKET_SIZE 340
 
 **Configuratie PlatformIO**
 
@@ -134,6 +138,13 @@ In main.cpp:
 
 #define TEMP_IS\_TOO\_HIGH\_LEVEL\_2 (90.0) // in degrees Celcius, used to disable the compressor when temperature is too high of sensor 2
 
+- _Pressure limits, used for safety:_
+In main.cpp:
+
+#define PRESSURE\_MAX\_LIMIT (12.0)   // Compressor must be switched off above this limit for safety
+#define PRESSURE\_BELOW\_LIMIT (10.0) // If compressor was switched off because pressure was to high, 
+                                    // compressor can be switched on again if pressure becomes below this limit
+                                    
 - _The LED's dim value:_
 In main.cpp:
 
