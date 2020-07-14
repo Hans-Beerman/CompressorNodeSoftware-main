@@ -46,6 +46,7 @@
 #include <OptoDebounce.h>
 #include <ButtonDebounce.h>
 #include <WiFiUdp.h>
+#include <EEPROM.h>
 #include <NTP.h> // install NTP by Stefan Staub
 //
 // information about NTP.h, see: https://platformio.org/lib/show/5438/NTP
@@ -299,6 +300,7 @@ void checkClearEEPromAndCacheButtonPressed(void) {
       theOledDisplay.clearEEPromMessage();
       theOledDisplay.showStatus(NOSTATUS);
       // Clear EEPROM
+      EEPROM.begin(1024);
       wipe_eeprom();
       Log.println("EEProm cleared!");
       theOledDisplay.EEPromCleared();      
